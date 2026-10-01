@@ -70,6 +70,13 @@ client/City3D.tsx Vista 3D con Three.js (edificios low-poly generados por códig
 - **Modo cooperativo 🤝** (pensado para 2 personas): cada uno lleva su propia ciudad, así que nadie estorba al otro. El equipo aporta dinero a 4 grandes proyectos (🌉 Puente, 🚄 Tren, 🛫 Aeropuerto, 🚀 Puerto espacial). Cada proyecto terminado da ingresos extra a todos, y terminar el último gana la partida, siempre que sea antes de que la corporación rival 🦹 MegaCorp llegue al 100 %. Dificultades: 🌱 Fácil (rival en 80 min, proyectos a mitad de precio, +20 % de ingresos), ⚖️ Normal (55 min) y 🔥 Difícil (40 min, proyectos al doble de precio). Los costes se ajustan al número de jugadores.
 - **Victoria en modo competitivo (sin límite de tiempo):** gana el primero en completar el **100 % de su imperio**: todas las parcelas, todas las investigaciones, todos los monumentos y cada tipo de edificio llevado alguna vez a nivel 5 (la colección de la pestaña *Imperio*). El ranking se ordena por ese porcentaje.
 
+## Actualización premium
+
+- **Partida más larga:** segundo distrito 🌆 (12 parcelas más, nivel 12, $20M), edificios de la era futura (⚛️ Planta de fusión, 🏙️ Arcología, 🌀 Portal cuántico), 2 investigaciones y 2 monumentos más (🔭 Observatorio, 🌕 Base lunar), niveles hasta el 18 y 16 logros con recompensa. La economía se ha reequilibrado para que una partida completa dure aproximadamente el doble. El cooperativo tiene un 5.º proyecto (🌆 Ciudad del futuro) y un rival más lento.
+- **Sprites 2D propios:** edificios y monumentos isométricos dibujados en SVG por código (sin archivos de imagen). Crecen con el nivel y están animados (humo, noria, portal, moneda del banco, luces).
+- **Ciudad 3D viva:** coches y peatones que aumentan con tu ciudad, ciclo de día y noche de 4 minutos con ventanas y faros que se encienden, partículas al construir y fuegos artificiales al subir de nivel.
+- **Interfaz premium:** transiciones entre pantallas, desfile de edificios en la portada, contador de dinero con dígitos que ruedan como una tragaperras, avisos con icono y barra de tiempo, y **música de fondo** generada en el navegador (botón 🎵).
+
 ## Fase 2
 
 Hecho: eventos aleatorios, misiones, chat con reacciones, sonidos y ciudad en 3D.

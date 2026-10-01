@@ -4,7 +4,7 @@ import type { Building, PlayerState, RoomView } from '../shared/game.ts';
 import { send as netSend, toast, useStore } from './net.ts';
 import { ConnDot } from './App.tsx';
 import { LandmarkSprite, Sprite } from './sprites.tsx';
-import { isMuted, play, toggleMute } from './sound.ts';
+import { isMusicOn, isMuted, play, toggleMusic, toggleMute } from './sound.ts';
 
 // The 3D view (Three.js) is loaded on demand so the home screen stays light.
 const City3D = lazy(() => import('./City3D.tsx'));
@@ -31,6 +31,18 @@ const ranking = (room: RoomView) =>
 interface Burst { id: number; x: number; y: number; amount: number }
 let burstId = 0;
 
+/** Slot-machine style number: each digit is a vertical strip that rolls to its value. */
+function Rolling({ text }: { text: string }) {
+  const chars = [...text];
+  return (
+    <span className="rolling" aria-hidden>
+      {chars.map((ch, k) => /\d/.test(ch)
+        ? <span key={chars.length - k} className="digit"><span className="strip" style={{ transform: `translateY(${-Number(ch) * 10}%)` }}>{'0123456789'.split('').map((d) => <span key={d}>{d}</span>)}</span></span>
+        : <span key={`${chars.length - k}${ch}`}>{ch}</span>)}
+    </span>
+  );
+}
+
 function useTicker(ms: number) {
   const [, setN] = useState(0);
   useEffect(() => {
@@ -48,6 +60,7 @@ export function Game() {
   const [viewing, setViewing] = useState<string | null>(null);
   const [hideEnd, setHideEnd] = useState(false);
   const [muted, setMuted] = useState(isMuted());
+  const [music, setMusic] = useState(isMusicOn());
   const [view3d, setView3d] = useState(() => WEBGL && pref3d());
   const toggle3d = () => {
     setView3d(!view3d);
@@ -159,12 +172,13 @@ export function Game() {
           <small>{room.coop ? `🤝 Cooperativo · ${G.DIFFICULTIES[room.coop.difficulty].emoji} ${G.DIFFICULTIES[room.coop.difficulty].name}` : 'Meta: imperio al 100%'}</small>
         </div>
         <ConnDot status={status} />
+        <button className={`btn ghost small ${music ? '' : 'off'}`} onClick={() => setMusic(toggleMusic())} title={music ? 'Quitar música' : 'Poner música'}>🎵</button>
         <button className="btn ghost small" onClick={() => setMuted(toggleMute())} title={muted ? 'Activar sonido' : 'Silenciar'}>{muted ? '🔇' : '🔊'}</button>
         <button className="btn ghost small" onClick={leave}>Salir</button>
       </header>
 
       <section className="stats">
-        <div className="stat money"><label>Dinero</label><b key={receivedAt} className="tick">{$(money)}</b></div>
+        <div className="stat money"><label>Dinero</label><b aria-label={$(money)}><Rolling text={$(money)} /></b></div>
         <div className="stat"><label>Ingresos</label><b className="green">+{$(r.income)}/s</b></div>
         <div className="stat"><label>Gastos</label><b className="red">-{$(r.expense)}/s</b></div>
         <div className="stat"><label>Beneficio neto</label><b>{$(r.net)}/s</b><small>{$(r.net * 60)}/min</small></div>

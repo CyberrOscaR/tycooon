@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { DIFFICULTIES, MAX_PLAYERS, RIVAL_NAME, type Difficulty } from '../shared/game.ts';
 import { send, useStore, savedName, saveName, toast, type ConnStatus } from './net.ts';
 import { Game, Feed } from './Game.tsx';
+import { Sprite } from './sprites.tsx';
 
 export function App() {
   const s = useStore();
@@ -12,9 +13,16 @@ export function App() {
   else screen = <Game />;
   return (
     <>
-      {screen}
+      {/* re-keyed per screen so each one plays its entrance transition */}
+      <div className="screen" key={s.resuming ? 'load' : !s.room || !s.me ? 'home' : s.room.status === 'lobby' ? 'lobby' : 'game'}>{screen}</div>
       <div className="toasts">
-        {s.toasts.map((t) => <div key={t.id} className={`toast ${t.kind}`}>{t.text}</div>)}
+        {s.toasts.map((t) => (
+          <div key={t.id} className={`toast ${t.kind}`}>
+            <span className="t-ico">{t.kind === 'error' ? '⚠️' : t.kind === 'good' ? '✨' : '🔔'}</span>
+            <span>{t.text}</span>
+            <i className="t-bar" />
+          </div>
+        ))}
       </div>
     </>
   );
@@ -52,6 +60,9 @@ function Home() {
       <section className="hero">
         <h1>Construye tu imperio.<br /><span>Compite con tus amigos.</span></h1>
         <p>Tycoon multijugador en el navegador: crea una partida, comparte el código y a ver quién acaba con el negocio más rentable.</p>
+        <div className="parade" aria-hidden>
+          {(['lemonade', 'cafe', 'hotel', 'tech', 'space', 'portal'] as const).map((t) => <Sprite key={t} type={t} level={3} />)}
+        </div>
       </section>
 
       <div className="card name-card">
@@ -78,7 +89,7 @@ function Home() {
         <div><b>🏗️ Construye</b>Compra edificios en tus parcelas.</div>
         <div><b>📈 Mejora</b>Sube de nivel, contrata y investiga.</div>
         <div><b>💰 Gana</b>Los ingresos llegan cada segundo.</div>
-        <div><b>🏆 Compite</b>Gana el mayor patrimonio.</div>
+        <div><b>🏆 Compite o coopera</b>Completa tu imperio o venced juntos a MegaCorp.</div>
       </div>
     </div>
   );

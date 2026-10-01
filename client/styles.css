@@ -387,6 +387,38 @@ h1, h2, h3, h4 { margin: 0 0 8px; }
 .spr .sway { animation: spr-sway 6s ease-in-out infinite; transform-box: fill-box; transform-origin: bottom; }
 @keyframes spr-sway { 50% { transform: rotate(-12deg); } }
 
+/* premium polish */
+.screen { animation: screen-in .45s cubic-bezier(.2, .8, .2, 1); }
+@keyframes screen-in { from { opacity: 0; transform: translateY(14px) scale(.99); } }
+.hero h1 span { background-size: 200% auto; background-image: linear-gradient(90deg, var(--accent2), #a78bfa, #f472b6, var(--accent2)); animation: shimmer 6s linear infinite; }
+@keyframes shimmer { to { background-position: 200% center; } }
+.parade { display: flex; justify-content: center; align-items: flex-end; gap: 4px; margin: 18px auto 0; max-width: 620px; }
+.parade .spr { width: 16%; height: auto; max-height: 130px; animation: parade 3s ease-in-out infinite; filter: drop-shadow(0 8px 10px #0006); }
+.parade .spr:nth-child(2) { animation-delay: .4s; } .parade .spr:nth-child(3) { animation-delay: .8s; }
+.parade .spr:nth-child(4) { animation-delay: 1.2s; } .parade .spr:nth-child(5) { animation-delay: 1.6s; } .parade .spr:nth-child(6) { animation-delay: 2s; }
+@keyframes parade { 50% { transform: translateY(-8px); } }
+.rolling { display: inline-flex; font-variant-numeric: tabular-nums; }
+.digit { display: inline-block; height: 1.15em; overflow: hidden; vertical-align: top; }
+.digit .strip { display: flex; flex-direction: column; transition: transform .45s cubic-bezier(.2, .9, .25, 1.15); }
+.digit .strip span { height: 1.15em; line-height: 1.15em; }
+.stat { transition: transform .2s, box-shadow .2s; }
+.stat:hover { transform: translateY(-2px); box-shadow: 0 8px 24px #0005; }
+.stat.money { box-shadow: 0 8px 30px #10b98133; position: relative; overflow: hidden; }
+.stat.money::after { content: ''; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 30%, #ffffff22 50%, transparent 70%); background-size: 250% 100%; animation: shine 4s ease-in-out infinite; pointer-events: none; }
+@keyframes shine { from { background-position: 150% 0; } to { background-position: -100% 0; } }
+.btn.primary { position: relative; overflow: hidden; box-shadow: 0 6px 20px #6366f155; }
+.btn.off { opacity: .45; }
+.item { animation: item-in .3s ease-out both; }
+@keyframes item-in { from { opacity: 0; transform: translateY(6px); } }
+.toast { display: flex; gap: 10px; align-items: center; position: relative; overflow: hidden; animation: toast-in .35s cubic-bezier(.2, .9, .3, 1.2); backdrop-filter: blur(6px); }
+@keyframes toast-in { from { transform: translateY(20px) scale(.92); opacity: 0; } }
+.t-ico { font-size: 18px; }
+.t-bar { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--accent2); animation: t-bar 3.5s linear forwards; }
+.toast.error .t-bar { background: var(--red); } .toast.good .t-bar { background: var(--green); }
+@keyframes t-bar { to { width: 0; } }
+.tabs button { transition: background .2s, color .2s; }
+.code-box strong { text-shadow: 0 0 18px #22d3ee66; }
+
 /* end screen */
 .overlay { position: fixed; inset: 0; background: #000a; display: grid; place-items: center; z-index: 40; padding: 16px; backdrop-filter: blur(4px); }
 .end { width: min(440px, 100%); text-align: center; animation: pop .3s; }
