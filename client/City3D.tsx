@@ -13,8 +13,11 @@ export interface City3DProps {
 
 type Anim = (t: number) => void;
 const COLS = 4, GAP = 1.25;
-const PLOT_POS = Array.from({ length: G.MAX_PLOTS }, (_, i) =>
-  new THREE.Vector3(((i % COLS) - 1.5) * GAP, 0, (Math.floor(i / COLS) - 1) * GAP));
+const DISTRICT_Z = -4.6; // the second district sits behind the first one
+const PLOT_POS = Array.from({ length: G.MAX_PLOTS }, (_, i) => {
+  const k = i % G.DISTRICT_SIZE;
+  return new THREE.Vector3(((k % COLS) - 1.5) * GAP, 0, (Math.floor(k / COLS) - 1) * GAP + Math.floor(i / G.DISTRICT_SIZE) * DISTRICT_Z);
+});
 const rand = (seed: number) => { const x = Math.sin(seed * 12.9898) * 43758.5453; return x - Math.floor(x); };
 
 // --- Tiny low-poly toolkit. Materials are shared per color.
@@ -179,6 +182,39 @@ function building(type: BuildingType, anims: Anim[]) {
       anims.push((t) => (rocket.position.y = 0.03 + Math.sin(t * 2) * 0.02));
       break;
     }
+    case 'fusion': {
+      add(cyl(0.42, 0.45, 0.2, '#334155', 0, 0.1, 0, 16));
+      const dome = mesh(new THREE.SphereGeometry(0.34, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), '#a5f3fc', 0, 0.2, 0, 0.35);
+      add(dome);
+      for (const r of [0.3, 0.38]) {
+        const ring = mesh(new THREE.TorusGeometry(r, 0.02, 6, 32), '#22d3ee', 0, 0.42, 0, 0.9);
+        ring.castShadow = false;
+        add(ring);
+        anims.push((t) => { ring.rotation.x = t * (r > 0.35 ? 1.3 : -1.7); ring.rotation.y = t * 0.7; });
+      }
+      add(cyl(0.05, 0.07, 0.5, '#64748b', 0.36, 0.45, -0.3, 8));
+      smoke(g, anims, 0.36, 0.72, -0.3);
+      break;
+    }
+    case 'arcology': {
+      [[0.9, 0.3], [0.7, 0.3], [0.5, 0.3], [0.32, 0.35]].reduce((y, [wd, h]) => {
+        add(box(wd, h, wd, '#e2e8f0', 0, y + h / 2, 0), box(wd + 0.02, 0.04, wd + 0.02, '#22c55e', 0, y + h, 0));
+        add(box(wd + 0.01, h * 0.4, wd + 0.01, '#bae6fd', 0, y + h * 0.45, 0, 0.4));
+        return y + h;
+      }, 0);
+      add(cyl(0.01, 0.01, 0.4, '#e5e7eb', 0, 1.45, 0, 5), ball(0.03, '#f43f5e', 0, 1.66, 0, 1));
+      break;
+    }
+    case 'portal': {
+      add(cyl(0.45, 0.5, 0.1, '#1e1b4b', 0, 0.05, 0, 16));
+      for (const x of [-0.4, 0.4]) add(box(0.1, 0.9, 0.12, '#312e81', x, 0.5, 0));
+      const ring = mesh(new THREE.TorusGeometry(0.36, 0.06, 8, 32), '#a855f7', 0, 0.6, 0, 0.8);
+      const core = mesh(new THREE.CircleGeometry(0.3, 24), '#c084fc', 0, 0.6, 0, 1);
+      (core.material as THREE.MeshLambertMaterial).side = THREE.DoubleSide;
+      add(ring, core);
+      anims.push((t) => { ring.rotation.z = t * 2; core.scale.setScalar(0.85 + Math.sin(t * 3) * 0.15); });
+      break;
+    }
     case 'tech': {
       add(box(0.55, 1.1, 0.55, '#4f46e5', 0, 0.55, 0, 0.15));
       for (let k = 1; k <= 4; k++) add(box(0.57, 0.05, 0.57, '#c7d2fe', 0, k * 0.24, 0, 0.5));
@@ -195,7 +231,8 @@ function building(type: BuildingType, anims: Anim[]) {
 
 // Monuments stand around the board, outside the roads
 const LANDMARK_POS: Record<G.LandmarkId, [number, number]> = {
-  fountain: [-3.5, 0.6], garden: [3.5, -0.6], statue: [-1.3, 2.9], stadium: [1.9, -3.3], tower: [3.5, 2.3], palace: [-2.3, -3.3],
+  fountain: [-3.6, 0.6], garden: [3.6, -0.6], statue: [-1.3, 2.9], stadium: [3.9, -3.4], tower: [3.6, 2.3],
+  palace: [-3.9, -3.6], observatory: [-3.8, -6.6], moonbase: [3.9, -6.8],
 };
 function landmark(id: G.LandmarkId, anims: Anim[]) {
   const g = new THREE.Group();
@@ -232,6 +269,24 @@ function landmark(id: G.LandmarkId, anims: Anim[]) {
       const light = ball(0.06, '#ef4444', 0, 2.65, 0, 1);
       g.add(light);
       anims.push((t) => light.scale.setScalar(Math.sin(t * 5) > 0 ? 1.3 : 0.6));
+      break;
+    }
+    case 'observatory': {
+      g.add(cyl(0.32, 0.36, 0.5, '#f1f5f9', 0, 0.25, 0, 16),
+        mesh(new THREE.SphereGeometry(0.32, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), '#cbd5e1', 0, 0.5, 0));
+      const scope = cyl(0.06, 0.08, 0.45, '#334155', 0.12, 0.75, 0, 8);
+      scope.rotation.z = -0.7;
+      g.add(scope);
+      anims.push((t) => (g.rotation.y = Math.sin(t * 0.3) * 0.6));
+      break;
+    }
+    case 'moonbase': {
+      for (const [x, z, r] of [[0, 0, 0.32], [0.42, 0.2, 0.2], [-0.38, 0.25, 0.22]])
+        g.add(mesh(new THREE.SphereGeometry(r, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), '#e2e8f0', x, 0, z), box(0.06, 0.06, 0.1, '#38bdf8', x, 0.04, z + r, 0.6));
+      const moon = ball(0.35, '#fef9c3', 0, 1.6, 0, 2);
+      (moon.material as THREE.MeshLambertMaterial).emissive.set('#fef08a');
+      g.add(moon);
+      anims.push((t) => (moon.position.y = 1.6 + Math.sin(t) * 0.1));
       break;
     }
     case 'palace':
@@ -274,22 +329,24 @@ export default function City3D(props: City3DProps) {
     const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 0.3, 0);
-    Object.assign(controls, { enableDamping: true, enablePan: false, minDistance: 4, maxDistance: 18, minPolarAngle: 0.25, maxPolarAngle: 1.3 });
+    Object.assign(controls, { enableDamping: true, enablePan: false, minDistance: 4, maxDistance: 26, minPolarAngle: 0.25, maxPolarAngle: 1.3 });
 
     scene.add(new THREE.HemisphereLight('#dbeafe', '#3f6212', 1.8));
     const sun = new THREE.DirectionalLight('#fff7e6', 2.4);
     sun.position.set(4, 9, 5);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
-    Object.assign(sun.shadow.camera, { left: -7, right: 7, top: 7, bottom: -7 });
+    Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10 });
     scene.add(sun);
 
     // Ground, roads and decoration
     const ground = mesh(new THREE.CircleGeometry(16, 40), '#65a30d', 0, -0.07, 0);
     ground.rotation.x = -Math.PI / 2;
-    scene.add(ground, box(COLS * GAP + 0.35, 0.06, 3 * GAP + 0.35, '#475569', 0, -0.03, 0));
-    for (let k = 0; k < 26; k++) {
-      const a = rand(k + 1) * Math.PI * 2, r = 4 + rand(k + 50) * 5;
+    scene.add(ground, box(COLS * GAP + 0.35, 0.06, 3 * GAP + 0.35, '#475569', 0, -0.03, 0),
+      box(COLS * GAP + 0.35, 0.06, 3 * GAP + 0.35, '#475569', 0, -0.03, DISTRICT_Z));
+    for (let k = 0; k < 34; k++) {
+      const a = rand(k + 1) * Math.PI * 2, r = 4 + rand(k + 50) * 6;
+      if (Math.abs(Math.cos(a) * r) < 3.2 && Math.sin(a) * r > -7.2 && Math.sin(a) * r < 2.6) continue; // keep the districts clear
       scene.add(tree(Math.cos(a) * r, Math.sin(a) * r, 0.9 + rand(k + 99) * 0.8));
     }
     const flagMat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
@@ -298,7 +355,7 @@ export default function City3D(props: City3DProps) {
     flag.castShadow = true;
     const pole = new THREE.Group();
     pole.add(cyl(0.025, 0.025, 1.45, '#e5e7eb', 0, 0.72, 0, 6), flag);
-    pole.position.set(-2.75, 0, -2.1);
+    pole.position.set(-2.75, 0, 2.1);
     scene.add(pole);
 
     const frame = (color: string) => {
@@ -322,11 +379,22 @@ export default function City3D(props: City3DProps) {
     });
 
     const clock = new THREE.Clock();
+    let w = 1, h = 1, districts = 1;
+    /** Points the camera at the whole city (both districts once the second one is unlocked). */
+    const reframe = () => {
+      const two = districts > 1;
+      controls.target.set(0, 0.3, two ? DISTRICT_Z / 2 : 0);
+      // Narrow (mobile) screens need the camera further away to fit the whole board
+      const dist = (w / h < 1 ? 13 : 9.5) * (two ? 1.45 : 1);
+      camera.position.copy(controls.target).add(new THREE.Vector3(0.55, 0.7, 0.75).normalize().multiplyScalar(dist));
+      camera.updateProjectionMatrix();
+    };
     let owner = '', landmarkKey: string | null = null, landmarks = new THREE.Group(), lmAnims: Anim[] = [];
     syncRef.current = () => {
       const { p, sel, readOnly } = propsRef.current;
       const sameOwner = owner === p.id;
       owner = p.id;
+      if (p.districts !== districts) { districts = p.districts; reframe(); }
       slots.forEach((s, i) => {
         const b = p.plots[i];
         const state = i < p.plots.length ? (b ? 'built' : 'empty') : i === p.plots.length && !readOnly && i < G.MAX_PLOTS ? 'buy' : 'locked';
@@ -419,16 +487,12 @@ export default function City3D(props: City3DProps) {
       el.style.cursor = hoverFrame.visible ? 'pointer' : '';
     });
 
-    let w = 1, h = 1;
     const ro = new ResizeObserver(() => {
       w = wrap.clientWidth;
       h = wrap.clientHeight;
       renderer.setSize(w, h);
       camera.aspect = w / h;
-      // Narrow (mobile) screens need the camera further away to fit the whole board
-      const dist = w / h < 1 ? 13 : 9.5;
-      camera.position.copy(controls.target).add(new THREE.Vector3(0.55, 0.7, 0.75).normalize().multiplyScalar(dist));
-      camera.updateProjectionMatrix();
+      reframe();
     });
     ro.observe(wrap);
 

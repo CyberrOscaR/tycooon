@@ -164,6 +164,9 @@ h1, h2, h3, h4 { margin: 0 0 8px; }
 .t-hotel { background: linear-gradient(160deg, #ffe4e6, #fda4af); }
 .t-park { background: linear-gradient(160deg, #fce7f3, #f9a8d4); }
 .t-space { background: linear-gradient(160deg, #e0f2fe, #7dd3fc); }
+.t-fusion { background: linear-gradient(160deg, #cffafe, #22d3ee); }
+.t-arcology { background: linear-gradient(160deg, #dcfce7, #4ade80); }
+.t-portal { background: linear-gradient(160deg, #f3e8ff, #c084fc); }
 
 /* panel content */
 .list { display: grid; gap: 6px; }
@@ -323,6 +326,26 @@ h1, h2, h3, h4 { margin: 0 0 8px; }
 .item.project.now { border-color: var(--gold); }
 .item.project.done { border-color: #34d39955; }
 .item.project.done .price { color: var(--green); }
+
+/* districts & achievements */
+.districts { display: grid; gap: 10px; }
+.district-title { font-weight: 800; color: var(--accent2); margin-top: 4px; }
+.city.future { background: linear-gradient(160deg, #1e1b4b, #312e81 60%, #4c1d95); }
+.district-lock {
+  display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 16px; border: 2px dashed #a78bfa88;
+  background: repeating-linear-gradient(135deg, #1e1b4b, #1e1b4b 12px, #241f5c 12px, #241f5c 24px);
+}
+.district-lock > div { display: grid; flex: 1; }
+.district-lock small { color: var(--muted); }
+.district-lock .ico { font-size: 34px; }
+.board .district-lock { margin-top: 10px; }
+.achievements { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.achievements span {
+  display: grid; justify-items: center; gap: 2px; padding: 6px 2px; border-radius: 10px; background: var(--bg2);
+  font-size: 22px; filter: grayscale(1); opacity: .35; text-align: center;
+}
+.achievements span small { font-size: 9px; color: var(--muted); line-height: 1.1; }
+.achievements span.got { filter: none; opacity: 1; background: #fbbf2418; box-shadow: inset 0 0 0 1px #fbbf2455; }
 
 /* end screen */
 .overlay { position: fixed; inset: 0; background: #000a; display: grid; place-items: center; z-index: 40; padding: 16px; backdrop-filter: blur(4px); }

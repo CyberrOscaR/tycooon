@@ -68,6 +68,17 @@ export function Game() {
     lastLevel.current = player.level;
   }, [player?.level]);
 
+  const lastAch = useRef(player?.achievements.length ?? 0);
+  useEffect(() => {
+    if (!player) return;
+    if (player.achievements.length > lastAch.current) {
+      const a = G.ACHIEVEMENTS.find((x) => x.id === player.achievements[player.achievements.length - 1]);
+      if (a) toast(`🏅 ¡Logro! ${a.emoji} ${a.name} (+$${G.fmt(a.reward)})`, 'good');
+      play('mission');
+    }
+    lastAch.current = player.achievements.length;
+  }, [player?.achievements.length]);
+
   const lastMission = useRef(player?.mission ?? 0);
   useEffect(() => {
     if (!player) return;
@@ -161,7 +172,7 @@ export function Game() {
           <small>{lvlTo ? `${G.fmt(player.xp)} / ${G.fmt(lvlTo)} XP` : 'Nivel máximo'}</small>
         </div>
         {room.coop ? (
-          <div className="stat empire-stat" onClick={() => setTab('empire')}><label>Equipo · proyecto {Math.min(room.coop.stage + 1, 4)}/4</label>
+          <div className="stat empire-stat" onClick={() => setTab('empire')}><label>Equipo · proyecto {Math.min(room.coop.stage + 1, G.PROJECTS.length)}/{G.PROJECTS.length}</label>
             <div className="bar gold"><i style={{ width: `${(room.coop.funded / (G.projectCost(room.coop) || 1)) * 100}%` }} /></div>
             <small>Rival: <b className="red">{Math.floor(room.coop.rival)}%</b></small>
           </div>
@@ -198,6 +209,7 @@ export function Game() {
               <City p={shown} readOnly={readOnly} sel={readOnly ? null : sel} onSelect={select} money={money} tick={playing ? receivedAt : 0} ev={ev}
                 onCollect={collect} onUpgrade={upgrade} />
             )}
+            {view3d && <DistrictLock p={shown} money={money} readOnly={readOnly} />}
             {WEBGL && <button className="btn small view-toggle" onClick={toggle3d}>{view3d ? '▦ Vista 2D' : '🧊 Vista 3D'}</button>}
           </div>
           <Feed room={room} me={player.id} />
@@ -238,7 +250,7 @@ function City({ p, readOnly, sel, onSelect, money, tick, ev, onCollect, onUpgrad
   for (let i = 0; i < G.MAX_PLOTS; i++) {
     const b = p.plots[i];
     if (i >= p.plots.length) {
-      if (i === p.plots.length && !readOnly) {
+      if (i === p.plots.length && !readOnly && (i < G.DISTRICT_SIZE || p.districts > 1)) {
         const cost = G.plotCost(p);
         cells.push(
           <button key={i} className="plot buy" disabled={money < cost} onClick={() => send({ t: 'buyPlot' })}>
@@ -277,7 +289,30 @@ function City({ p, readOnly, sel, onSelect, money, tick, ev, onCollect, onUpgrad
       );
     }
   }
-  return <div className="city" style={{ '--pc': p.color } as React.CSSProperties}>{cells}</div>;
+  return (
+    <div className="districts" style={{ '--pc': p.color } as React.CSSProperties}>
+      <div className="city">{cells.slice(0, G.DISTRICT_SIZE)}</div>
+      {p.districts > 1
+        ? <><div className="district-title">🌆 Distrito Futuro</div><div className="city future">{cells.slice(G.DISTRICT_SIZE)}</div></>
+        : <DistrictLock p={p} money={money} readOnly={readOnly} />}
+    </div>
+  );
+}
+
+function DistrictLock({ p, money, readOnly }: { p: PlayerState; money: number; readOnly: boolean }) {
+  if (p.districts > 1) return null;
+  const lowLevel = p.level < G.DISTRICT_LEVEL;
+  return (
+    <div className="district-lock">
+      <span className="ico">🌆</span>
+      <div><b>Distrito Futuro</b><small>12 parcelas más para los edificios de la era futura</small></div>
+      {!readOnly && (
+        <button className="btn primary" disabled={lowLevel || money < G.DISTRICT_COST} onClick={() => send({ t: 'district' })}>
+          {lowLevel ? `🔒 Nivel ${G.DISTRICT_LEVEL}` : `Desbloquear ${$(G.DISTRICT_COST)}`}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function BuildList({ p, plot, money, onBuilt }: { p: PlayerState; plot: number | null; money: number; onBuilt: () => void }) {
@@ -368,7 +403,7 @@ function Techs({ p, money }: { p: PlayerState; money: number }) {
           </button>
         );
       })}
-      <p className="hint">Además, cada nivel de jugador da +3% de ingresos.</p>
+      <p className="hint">Además, cada nivel de jugador da +2% de ingresos.</p>
     </div>
   );
 }
@@ -458,6 +493,14 @@ function Empire({ p, money, room }: { p: PlayerState; money: number; room: RoomV
         ))}
       </div>
       </>}
+      <h4 className="sub">Logros ({p.achievements.length}/{G.ACHIEVEMENTS.length})</h4>
+      <div className="achievements">
+        {G.ACHIEVEMENTS.map((a) => (
+          <span key={a.id} className={p.achievements.includes(a.id) ? 'got' : ''} title={`${a.name}: ${a.desc} (+$${G.fmt(a.reward)})`}>
+            {a.emoji}<small>{a.name}</small>
+          </span>
+        ))}
+      </div>
       <h4 className="sub">Monumentos (bonificación permanente)</h4>
       {G.LANDMARKS.map((l) => {
         const done = p.landmarks.includes(l.id), locked = p.level < l.unlock;
@@ -504,7 +547,7 @@ function CoopCard({ c, money }: { c: G.CoopState; money: number }) {
       <div className="coop-row">
         <span className="m-ico">{pr.emoji}</span>
         <div className="m-body">
-          <div className="m-top"><b>Proyecto {c.stage + 1}/4: {pr.name}</b><span className="m-reward">{pr.bonus ? `+${pr.bonus * 100}% ingresos` : '🏆 Victoria'}</span></div>
+          <div className="m-top"><b>Proyecto {c.stage + 1}/{G.PROJECTS.length}: {pr.name}</b><span className="m-reward">{pr.bonus ? `+${pr.bonus * 100}% ingresos` : '🏆 Victoria'}</span></div>
           <div className="bar gold"><i style={{ width: `${(c.funded / cost) * 100}%` }} /></div>
           <small>{$(c.funded)} de {$(cost)} · faltan {$(left)}</small>
         </div>
@@ -528,7 +571,7 @@ function TeamProjects({ room }: { room: RoomView }) {
   const c = room.coop!;
   return (
     <>
-      <div className="empire-head"><b>{c.stage}/4</b><span>Proyectos del equipo · terminad el último antes que {G.RIVAL_NAME}</span></div>
+      <div className="empire-head"><b>{c.stage}/{G.PROJECTS.length}</b><span>Proyectos del equipo · terminad el último antes que {G.RIVAL_NAME}</span></div>
       {G.PROJECTS.map((pr, k) => (
         <div key={k} className={`item project ${k < c.stage ? 'done' : k === c.stage ? 'now' : 'locked'}`}>
           <span className="ico">{pr.emoji}</span>

@@ -51,7 +51,7 @@ export function addPlayer(room: Room, name: string) {
   const used = new Set(room.players.map((p) => p.color));
   const player: PlayerState = {
     id: randomUUID().slice(0, 8), name, color: G.PLAYER_COLORS.find((c) => !used.has(c)) ?? '#94a3b8',
-    money: G.START_MONEY, xp: 0, level: 1, plots: Array(G.START_PLOTS).fill(null), techs: [], landmarks: [], maxed: [], bag: null, mission: 0, boost: teamBoost(room), online: true,
+    money: G.START_MONEY, xp: 0, level: 1, plots: Array(G.START_PLOTS).fill(null), techs: [], landmarks: [], maxed: [], bag: null, mission: 0, boost: teamBoost(room), districts: 1, achievements: [], stats: { bags: 0, gifted: 0, events: 0 }, online: true,
   };
   const token = randomBytes(18).toString('base64url');
   room.players.push(player);
@@ -92,7 +92,7 @@ export function startGame(room: Room, p: PlayerState) {
   if (room.mode === 'coop') {
     room.coop = { difficulty: room.difficulty, stage: 0, funded: 0, scale: Math.max(1, room.players.length) / 2, rival: 0, contrib: {}, won: null };
     room.players.forEach((x) => (x.boost = teamBoost(room)));
-    log(room, `🤝 Modo cooperativo (${G.DIFFICULTIES[room.difficulty].name}): terminad los 4 proyectos antes que ${G.RIVAL_NAME}`);
+    log(room, `🤝 Modo cooperativo (${G.DIFFICULTIES[room.difficulty].name}): terminad los ${G.PROJECTS.length} proyectos antes que ${G.RIVAL_NAME}`);
   }
   room.nextEventAt = room.startedAt + 60_000;
   log(room, '¡La partida ha comenzado! 🏁');
@@ -113,6 +113,12 @@ export function act(room: Room, p: PlayerState, m: Record<string, unknown>) {
 }
 
 function checkMissions(room: Room, p: PlayerState) {
+  for (const a of G.ACHIEVEMENTS) {
+    if (p.achievements.includes(a.id) || !a.check(p)) continue;
+    p.achievements.push(a.id);
+    p.money += a.reward;
+    log(room, `🏅 ${p.name} desbloqueó el logro "${a.name}" (+$${G.fmt(a.reward)})`, p.color);
+  }
   for (let m = G.MISSIONS[p.mission]; m && m.value(p) >= m.target; m = G.MISSIONS[++p.mission]) {
     p.money += m.reward;
     log(room, `${p.name} completó la misión "${m.text}" (+$${G.fmt(m.reward)}) 🎯`, p.color);
@@ -181,6 +187,7 @@ function applyAction(room: Room, p: PlayerState, m: Record<string, unknown>): st
     }
     case 'buyPlot': {
       if (p.plots.length >= G.MAX_PLOTS) return 'Ya tienes todas las parcelas';
+      if (p.plots.length >= G.DISTRICT_SIZE && p.districts < 2) return 'Primero desbloquea el Distrito Futuro';
       if (!spend(p, G.plotCost(p))) return NO_MONEY;
       p.plots.push(null);
       return;
@@ -193,6 +200,14 @@ function applyAction(room: Room, p: PlayerState, m: Record<string, unknown>): st
       if (!spend(p, t.cost)) return NO_MONEY;
       p.techs.push(t.id);
       log(room, `${p.name} investigó ${t.emoji} ${t.name}`, p.color);
+      return;
+    }
+    case 'district': {
+      if (p.districts >= 2) return 'Ya lo tienes';
+      if (p.level < G.DISTRICT_LEVEL) return `Requiere nivel ${G.DISTRICT_LEVEL}`;
+      if (!spend(p, G.DISTRICT_COST)) return NO_MONEY;
+      p.districts = 2;
+      log(room, `${p.name} desbloqueó el 🌆 Distrito Futuro`, p.color);
       return;
     }
     case 'landmark': {
@@ -211,6 +226,7 @@ function applyAction(room: Room, p: PlayerState, m: Record<string, unknown>): st
       p.money += bag.amount;
       p.xp += bag.amount * 0.25;
       p.bag = null;
+      p.stats.bags++;
       return;
     }
     case 'contribute': {
@@ -242,6 +258,7 @@ function applyAction(room: Room, p: PlayerState, m: Record<string, unknown>): st
       if (amount > p.money * G.GIFT_MAX_RATIO) return 'Solo puedes enviar hasta el 50% de tu dinero';
       p.money -= amount;
       to.money += amount;
+      p.stats.gifted += amount;
       log(room, `${p.name} envió $${G.fmt(amount)} a ${to.name} 🤝`, p.color);
       return;
     }
@@ -311,6 +328,7 @@ function startEvent(room: Room, now: number) {
   const options = G.EVENTS.filter((e) => e.id !== room.event?.id && (e.id !== 'angel' || ranked.length > 1));
   const def = options[Math.floor(Math.random() * options.length)];
   room.event = { id: def.id, endsAt: now + def.duration * 1000 };
+  room.players.forEach((p) => p.stats.events++);
   room.nextEventAt = room.event.endsAt + (40 + Math.random() * 40) * 1000;
   if (def.id === 'angel') {
     const last = ranked[ranked.length - 1];
@@ -340,6 +358,9 @@ export function loadRooms() {
         p.maxed ??= [];
         p.bag = null;
         p.boost ??= 0;
+        p.districts ??= 1;
+        p.achievements ??= [];
+        p.stats ??= { bags: 0, gifted: 0, events: 0 };
       });
       r.mode ??= 'versus';
       r.difficulty ??= 'normal';

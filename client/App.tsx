@@ -152,7 +152,7 @@ function Lobby() {
         )}
         <p className="muted small-text">
           {room.mode === 'coop'
-            ? `Cada uno gestiona su ciudad. Aportad dinero a 4 grandes proyectos comunes (cada uno da ingresos extra a todo el equipo) y terminad el último antes que ${RIVAL_NAME}.`
+            ? `Cada uno gestiona su ciudad. Aportad dinero a 5 grandes proyectos comunes (cada uno da ingresos extra a todo el equipo) y terminad el último antes que ${RIVAL_NAME}.`
             : 'Completar el imperio = todas las parcelas, investigaciones y monumentos, y cada tipo de edificio llevado al nivel máximo.'}
           {' '}Se puede entrar también con la partida empezada.
         </p>
