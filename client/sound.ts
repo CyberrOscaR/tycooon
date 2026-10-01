@@ -2,6 +2,7 @@
 type Note = [freq: number, start: number, dur: number, wave?: OscillatorType, vol?: number];
 const SOUNDS: Record<string, Note[]> = {
   buy: [[660, 0, 0.07], [990, 0.05, 0.09]],
+  coin: [[988, 0, 0.06, 'square', 0.05], [1319, 0.05, 0.16, 'square', 0.05]],
   sell: [[520, 0, 0.08], [390, 0.06, 0.12]],
   error: [[170, 0, 0.18, 'square', 0.05]],
   level: [[523, 0, 0.12], [659, 0.1, 0.12], [784, 0.2, 0.12], [1047, 0.3, 0.3]],

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DURATIONS, GOALS, MAX_PLAYERS, fmt } from '../shared/game.ts';
+import { MAX_PLAYERS } from '../shared/game.ts';
 import { send, useStore, savedName, saveName, toast, type ConnStatus } from './net.ts';
 import { Game, Feed } from './Game.tsx';
 
@@ -86,7 +86,6 @@ function Home() {
 
 function Lobby() {
   const { room, me, status } = useStore();
-  const [duration, setDuration] = useState(20);
   if (!room) return null;
   const isHost = room.hostId === me;
   const link = `${location.origin}/?code=${room.code}`;
@@ -127,20 +126,16 @@ function Lobby() {
 
         {isHost ? (
           <>
-            <h3>Duración</h3>
-            <div className="seg">
-              {DURATIONS.map((d) => (
-                <button key={d} className={d === duration ? 'on' : ''} onClick={() => setDuration(d)}>
-                  {d} min<small>Meta ${fmt(GOALS[d])}</small>
-                </button>
-              ))}
+            <div className="mode-box">
+              <span>♾️</span>
+              <div><b>Partida sin límite de tiempo</b><small>Gana el primero en completar el 100% de su imperio.</small></div>
             </div>
-            <button className="btn primary big" onClick={() => send({ t: 'start', duration })}>🚀 Empezar partida</button>
+            <button className="btn primary big" onClick={() => send({ t: 'start' })}>🚀 Empezar partida</button>
           </>
         ) : (
           <p className="waiting"><span className="spinner small" /> Esperando a que el anfitrión empiece…</p>
         )}
-        <p className="muted small-text">Gana quien tenga más patrimonio al acabar el tiempo, o el primero que alcance la meta. Se puede entrar también con la partida empezada.</p>
+        <p className="muted small-text">Completar el imperio = todas las parcelas, investigaciones y monumentos, y cada tipo de edificio llevado al nivel máximo. Se puede entrar también con la partida empezada.</p>
         <button className="btn ghost" onClick={() => send({ t: 'leave' })}>Salir</button>
       </div>
     </div>

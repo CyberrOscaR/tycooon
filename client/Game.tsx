@@ -23,7 +23,12 @@ const send = (m: Record<string, unknown>) => {
   netSend(m);
   play(m.t === 'sell' ? 'sell' : 'buy');
 };
-const ranking = (room: RoomView) => [...room.players].sort((a, b) => G.netWorth(b) - G.netWorth(a));
+/** Same order as the server: empire completion first, then net worth. */
+const ranking = (room: RoomView) =>
+  [...room.players].sort((a, b) => G.completion(b).pct - G.completion(a).pct || G.netWorth(b) - G.netWorth(a));
+
+interface Burst { id: number; x: number; y: number; amount: number }
+let burstId = 0;
 
 function useTicker(ms: number) {
   const [, setN] = useState(0);
@@ -36,7 +41,9 @@ function useTicker(ms: number) {
 export function Game() {
   const { room, me, status, receivedAt, clockOffset } = useStore();
   const [sel, setSel] = useState<number | null>(null);
-  const [tab, setTab] = useState<'build' | 'tech' | 'players'>('build');
+  const [tab, setTab] = useState<'build' | 'tech' | 'empire' | 'players'>('build');
+  const [bursts, setBursts] = useState<Burst[]>([]);
+  const [confettiAt, setConfettiAt] = useState(0);
   const [viewing, setViewing] = useState<string | null>(null);
   const [hideEnd, setHideEnd] = useState(false);
   const [muted, setMuted] = useState(isMuted());
@@ -56,6 +63,7 @@ export function Game() {
       const news = [...G.BUILDINGS, ...G.TECHS].filter((x) => x.unlock === player.level).map((x) => x.emoji + ' ' + x.name);
       toast(`⭐ ¡Nivel ${player.level}!${news.length ? ' Desbloqueado: ' + news.join(', ') : ''}`, 'good');
       play('level');
+      setConfettiAt(Date.now());
     }
     lastLevel.current = player.level;
   }, [player?.level]);
@@ -77,7 +85,7 @@ export function Game() {
     if (d) { toast(`${d.emoji} ${d.name}: ${d.desc}`); play('event'); }
   }, [room?.event?.endsAt]);
 
-  useEffect(() => { if (room?.status === 'ended') play('win'); }, [room?.status]);
+  useEffect(() => { if (room?.status === 'ended') { play('win'); setConfettiAt(Date.now()); } }, [room?.status]);
 
   if (!room || !player) return null;
 
@@ -87,7 +95,7 @@ export function Game() {
   const r = G.rates(player, ev);
   // The server sends the real balance every second; in between we interpolate for a smooth counter.
   const money = playing ? player.money + r.net * Math.min(1, (performance.now() - receivedAt) / 1000) : player.money;
-  const left = Math.max(0, room.endsAt - serverNow);
+  const comp = G.completion(player);
   const ranked = ranking(room);
   const rank = ranked.findIndex((p) => p.id === me) + 1;
   const lvlFrom = G.LEVEL_XP[player.level - 1], lvlTo = G.LEVEL_XP[player.level];
@@ -100,6 +108,16 @@ export function Game() {
     setTab('build');
     if (window.innerWidth < 900) setTimeout(() => panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   };
+  /** Money bag tapped: ask the server for it and celebrate right away. */
+  const collect = (i: number, e: { clientX: number; clientY: number }) => {
+    if (!player.bag || player.bag.plot !== i) return;
+    netSend({ t: 'collect', plot: i });
+    play('coin');
+    const burst = { id: ++burstId, x: e.clientX, y: e.clientY, amount: player.bag.amount };
+    setBursts((b) => [...b, burst]);
+    setTimeout(() => setBursts((b) => b.filter((x) => x !== burst)), 1000);
+  };
+  const upgrade = (i: number) => send({ t: 'upgrade', plot: i });
   const leave = () => confirm('¿Salir de la partida? Tu negocio seguirá en la partida, pero no podrás volver a controlarlo.') && send({ t: 'leave' });
 
   return (
@@ -107,9 +125,9 @@ export function Game() {
       <header className="topbar">
         <div className="logo">🏙️ <span>Tycooon</span></div>
         <div className="room-info"><b>{room.name}</b><span className="code" title="Código de partida">{room.code}</span></div>
-        <div className={`timer ${playing && left < 60_000 ? 'warn' : ''}`}>
-          {playing ? <>⏱️ {mmss(left)}</> : '🏁 Terminada'}
-          <small>Meta {$(room.goal)}</small>
+        <div className="timer">
+          {playing ? <>⏱️ {mmss(serverNow - room.startedAt)}</> : '🏁 Terminada'}
+          <small>Meta: imperio al 100%</small>
         </div>
         <ConnDot status={status} />
         <button className="btn ghost small" onClick={() => setMuted(toggleMute())} title={muted ? 'Activar sonido' : 'Silenciar'}>{muted ? '🔇' : '🔊'}</button>
@@ -117,7 +135,7 @@ export function Game() {
       </header>
 
       <section className="stats">
-        <div className="stat money"><label>Dinero</label><b>{$(money)}</b></div>
+        <div className="stat money"><label>Dinero</label><b key={receivedAt} className="tick">{$(money)}</b></div>
         <div className="stat"><label>Ingresos</label><b className="green">+{$(r.income)}/s</b></div>
         <div className="stat"><label>Gastos</label><b className="red">-{$(r.expense)}/s</b></div>
         <div className="stat"><label>Beneficio neto</label><b>{$(r.net)}/s</b><small>{$(r.net * 60)}/min</small></div>
@@ -125,7 +143,10 @@ export function Game() {
           <div className="bar"><i style={{ width: lvlTo ? `${Math.min(100, ((player.xp - lvlFrom) / (lvlTo - lvlFrom)) * 100)}%` : '100%' }} /></div>
           <small>{lvlTo ? `${G.fmt(player.xp)} / ${G.fmt(lvlTo)} XP` : 'Nivel máximo'}</small>
         </div>
-        <div className="stat"><label>Ranking</label><b>#{rank}<small> de {room.players.length}</small></b><small>Patrimonio {$(G.netWorth(player))}</small></div>
+        <div className="stat empire-stat" onClick={() => setTab('empire')}><label>Imperio · #{rank} de {room.players.length}</label>
+          <div className="bar gold"><i style={{ width: `${comp.pct}%` }} /></div>
+          <small><b>{comp.pct}%</b> completado</small>
+        </div>
       </section>
 
       {ev && (
@@ -144,11 +165,13 @@ export function Game() {
             {view3d ? (
               <Suspense fallback={<div className="city3d loading"><div className="spinner" /></div>}>
                 <City3D p={shown} readOnly={readOnly} sel={readOnly ? null : sel} onSelect={select} onBuy={() => send({ t: 'buyPlot' })}
+                  onCollect={collect} onUpgrade={upgrade}
                   money={money} tick={playing ? receivedAt : 0} ev={ev}
                   onFail={() => { setView3d(false); toast('Tu dispositivo no soporta 3D: usando la vista 2D'); }} />
               </Suspense>
             ) : (
-              <City p={shown} readOnly={readOnly} sel={readOnly ? null : sel} onSelect={select} money={money} tick={playing ? receivedAt : 0} ev={ev} />
+              <City p={shown} readOnly={readOnly} sel={readOnly ? null : sel} onSelect={select} money={money} tick={playing ? receivedAt : 0} ev={ev}
+                onCollect={collect} onUpgrade={upgrade} />
             )}
             {WEBGL && <button className="btn small view-toggle" onClick={toggle3d}>{view3d ? '▦ Vista 2D' : '🧊 Vista 3D'}</button>}
           </div>
@@ -158,23 +181,33 @@ export function Game() {
           <nav className="tabs">
             <button className={tab === 'build' ? 'on' : ''} onClick={() => setTab('build')}>{selB ? '🔧 Edificio' : '🏗️ Construir'}</button>
             <button className={tab === 'tech' ? 'on' : ''} onClick={() => setTab('tech')}>🔬 Mejoras</button>
+            <button className={tab === 'empire' ? 'on' : ''} onClick={() => setTab('empire')}>🏰 Imperio</button>
             <button className={tab === 'players' ? 'on' : ''} onClick={() => setTab('players')}>👥 Jugadores</button>
           </nav>
           {tab === 'build' && (selB
             ? <Details key={sel} p={player} i={sel!} money={money} ev={ev} onClose={() => setSel(null)} />
             : <BuildList p={player} plot={sel !== null && !player.plots[sel] ? sel : null} money={money} onBuilt={() => setSel(null)} />)}
           {tab === 'tech' && <Techs p={player} money={money} />}
+          {tab === 'empire' && <Empire p={player} money={money} />}
           {tab === 'players' && <Players room={room} me={player.id} ev={ev} viewing={shown.id} onView={(id) => setViewing(id === player.id ? null : id)} />}
         </aside>
       </main>
 
+      {bursts.map((b) => (
+        <div key={b.id} className="burst" style={{ left: b.x, top: b.y }}>
+          <b>+{$(b.amount)}</b>
+          {Array.from({ length: 8 }, (_, k) => <i key={k} style={{ '--a': `${k * 45}deg` } as React.CSSProperties}>🪙</i>)}
+        </div>
+      ))}
+      {Date.now() - confettiAt < 2500 && <Confetti key={confettiAt} />}
       {room.status === 'ended' && !hideEnd && <EndOverlay room={room} me={player.id} onClose={() => setHideEnd(true)} onLeave={() => send({ t: 'leave' })} />}
     </div>
   );
 }
 
-function City({ p, readOnly, sel, onSelect, money, tick, ev }: {
+function City({ p, readOnly, sel, onSelect, money, tick, ev, onCollect, onUpgrade }: {
   p: PlayerState; readOnly: boolean; sel: number | null; onSelect: (i: number) => void; money: number; tick: number; ev: G.EventDef | null;
+  onCollect: (i: number, e: React.MouseEvent) => void; onUpgrade: (i: number) => void;
 }) {
   const cells = [];
   for (let i = 0; i < G.MAX_PLOTS; i++) {
@@ -191,18 +224,29 @@ function City({ p, readOnly, sel, onSelect, money, tick, ev }: {
     } else if (b) {
       const d = G.BUILDING[b.type];
       const mod = ev ? G.buildingIncome(b, p, ev) / G.buildingIncome(b, p) : 1;
+      const upCost = G.upgradeCost(b, p);
+      const canUp = !readOnly && b.level < G.MAX_BUILDING_LEVEL && money >= upCost;
+      const bag = !readOnly && p.bag?.plot === i ? p.bag : null;
       cells.push(
-        <button key={i} className={`plot built t-${b.type} ${sel === i ? 'sel' : ''} ${mod > 1.01 ? 'boost' : mod < 0.99 ? 'nerf' : ''}`} disabled={readOnly} onClick={() => onSelect(i)}>
-          <span className="emoji">{d.emoji}</span>
+        // key includes the type so a new building re-mounts and plays its "pop" animation
+        <button key={`${i}-${b.type}`} className={`plot built t-${b.type} ${sel === i ? 'sel' : ''} ${mod > 1.01 ? 'boost' : mod < 0.99 ? 'nerf' : ''} ${b.level >= G.MAX_BUILDING_LEVEL ? 'maxed' : ''}`}
+          disabled={readOnly} onClick={() => onSelect(i)} style={{ '--d': `${(i % 5) * 0.3}s` } as React.CSSProperties}>
+          <span className="emoji" key={b.level}>{d.emoji}</span>
           <span className="bname">{d.name}</span>
           <span className="stars">{'★'.repeat(b.level)}<em>{'★'.repeat(G.MAX_BUILDING_LEVEL - b.level)}</em></span>
           {b.staff > 0 && <span className="staff">👷{b.staff}</span>}
           {tick > 0 && <span className="earn" key={tick}>+{G.fmt(netOf(b, p, ev))}</span>}
+          {canUp && (
+            <span role="button" className="quick-up" title="Mejorar" onClick={(e) => { e.stopPropagation(); onUpgrade(i); }}>⬆️ {$(upCost)}</span>
+          )}
+          {bag && (
+            <span role="button" className="bag" title="¡Cobrar!" onClick={(e) => { e.stopPropagation(); onCollect(i, e); }}>💰</span>
+          )}
         </button>,
       );
     } else {
       cells.push(
-        <button key={i} className={`plot empty ${sel === i ? 'sel' : ''}`} disabled={readOnly} onClick={() => onSelect(i)}>
+        <button key={i} className={`plot empty ${sel === i ? 'sel' : ''} ${!readOnly && money >= G.BUILDINGS[0].cost ? 'can' : ''}`} disabled={readOnly} onClick={() => onSelect(i)}>
           <span className="plus">+</span><span>{readOnly ? 'Vacía' : 'Construir'}</span>
         </button>,
       );
@@ -244,7 +288,7 @@ function Details({ p, i, money, ev, onClose }: { p: PlayerState; i: number; mone
   const d = G.BUILDING[b.type];
   const net = netOf(b, p, ev);
   const maxed = b.level >= G.MAX_BUILDING_LEVEL;
-  const upCost = G.upgradeCost(b), hireCost = G.hireCost(b);
+  const upCost = G.upgradeCost(b, p), hireCost = G.hireCost(b);
   const upGain = netOf({ ...b, level: b.level + 1 }, p, ev) - net;
   const hireGain = netOf({ ...b, staff: b.staff + 1 }, p, ev) - net;
   const full = b.staff >= G.maxStaff(b);
@@ -314,7 +358,7 @@ function Players({ room, me, ev, viewing, onView }: { room: RoomView; me: string
           <span className="avatar" style={{ background: p.color }}>{p.name[0]?.toUpperCase()}</span>
           <span className="info">
             <b>{p.name}{p.id === me && <em> (tú)</em>} <span className={`dot ${p.online ? 'on' : ''}`} /></b>
-            <small>Nv {p.level} · {$(G.rates(p, ev).net)}/s · {p.plots.filter(Boolean).length} edificios</small>
+            <small>🏰 {G.completion(p).pct}% · Nv {p.level} · {$(G.rates(p, ev).net)}/s</small>
           </span>
           <span className="price">{$(G.netWorth(p))}</span>
         </button>
@@ -367,6 +411,58 @@ export function Feed({ room, me }: { room: RoomView; me: string }) {
   );
 }
 
+function Empire({ p, money }: { p: PlayerState; money: number }) {
+  const { pct, parts } = G.completion(p);
+  const rows: [string, readonly [number, number]][] = [
+    ['🗺️ Parcelas', parts.plots], ['🔬 Investigaciones', parts.techs], ['🏛️ Monumentos', parts.landmarks], ['⭐ Edificios al máximo', parts.maxed],
+  ];
+  return (
+    <div className="list">
+      <div className="empire-head"><b>{pct}%</b><span>Completa el 100% para ganar la partida</span></div>
+      {rows.map(([label, [a, b]]) => (
+        <div key={label} className="empire-row">
+          <span>{label}</span><small>{a}/{b}</small>
+          <div className="bar gold"><i style={{ width: `${(a / b) * 100}%` }} /></div>
+        </div>
+      ))}
+      <h4 className="sub">Colección: lleva cada edificio a nivel 5</h4>
+      <div className="collection">
+        {G.BUILDINGS.map((d) => (
+          <span key={d.id} className={p.maxed.includes(d.id) ? 'got' : ''} title={d.name}>{d.emoji}</span>
+        ))}
+      </div>
+      <h4 className="sub">Monumentos (bonificación permanente)</h4>
+      {G.LANDMARKS.map((l) => {
+        const done = p.landmarks.includes(l.id), locked = p.level < l.unlock;
+        const bonus = l.income ? `+${l.income * 100}% ingresos` : `-${(l.upkeep ?? 0) * 100}% mantenimiento`;
+        return (
+          <button key={l.id} className={`item ${done ? 'done' : ''} ${locked ? 'locked' : ''}`}
+            disabled={done || locked || money < l.cost} onClick={() => send({ t: 'landmark', id: l.id })}>
+            <span className="ico">{locked ? '🔒' : l.emoji}</span>
+            <span className="info"><b>{l.name}</b><small>{locked ? `Nivel ${l.unlock} · ${bonus}` : bonus}</small></span>
+            <span className="price">{done ? '✓' : $(l.cost)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const CONFETTI_COLORS = ['#fbbf24', '#34d399', '#60a5fa', '#f472b6', '#a78bfa', '#fb7185'];
+function Confetti() {
+  const [pieces] = useState(() => Array.from({ length: 36 }, (_, k) => ({
+    left: Math.random() * 100, delay: Math.random() * 0.6, dur: 1.4 + Math.random() * 0.9,
+    color: CONFETTI_COLORS[k % CONFETTI_COLORS.length], rot: Math.random() * 360,
+  })));
+  return (
+    <div className="confetti">
+      {pieces.map((c, k) => (
+        <i key={k} style={{ left: `${c.left}%`, background: c.color, animationDelay: `${c.delay}s`, animationDuration: `${c.dur}s`, rotate: `${c.rot}deg` }} />
+      ))}
+    </div>
+  );
+}
+
 function MissionCard({ p }: { p: PlayerState }) {
   const m = G.MISSIONS[p.mission];
   if (!m) return <div className="mission"><span className="m-ico">🏅</span><b>¡Has completado todas las misiones!</b></div>;
@@ -391,14 +487,14 @@ function EndOverlay({ room, me, onClose, onLeave }: { room: RoomView; me: string
     <div className="overlay">
       <div className="card end">
         <div className="trophy">🏆</div>
-        <h2>{winner?.id === me ? '¡Has ganado!' : `¡${winner?.name ?? 'Nadie'} gana la partida!`}</h2>
+        <h2>{winner?.id === me ? '¡Has completado tu imperio!' : `¡${winner?.name ?? 'Nadie'} ha completado su imperio!`}</h2>
         <ol>
           {ranked.map((p, i) => (
             <li key={p.id} className={p.id === me ? 'me' : ''}>
               <span>{['🥇', '🥈', '🥉'][i] ?? `#${i + 1}`}</span>
               <span className="avatar" style={{ background: p.color }}>{p.name[0]?.toUpperCase()}</span>
               <span className="grow">{p.name}</span>
-              <b>{$(G.netWorth(p))}</b>
+              <b>{G.completion(p).pct}%</b>
             </li>
           ))}
         </ol>

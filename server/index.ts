@@ -123,7 +123,7 @@ function handle(c: Conn, m: Record<string, unknown>): string | void {
   const p = room?.players.find((x) => x.id === c.pid);
   if (!room || !p) return 'No estás en ninguna partida';
   room.lastActive = Date.now();
-  const err = m.t === 'start' ? startGame(room, p, Number(m.duration)) : m.t === 'chat' ? chat(room, p, m.text) : act(room, p, m);
+  const err = m.t === 'start' ? startGame(room, p) : m.t === 'chat' ? chat(room, p, m.text) : act(room, p, m);
   if (err) return err;
   broadcast(room);
 }
@@ -155,7 +155,7 @@ setInterval(() => {
   const now = Date.now();
   for (const room of rooms.values()) {
     const online = room.players.some((p) => p.online);
-    if (!online && now - room.lastActive > 60 * 60_000) rooms.delete(room.code); // abandoned for 1h
+    if (!online && now - room.lastActive > 12 * 60 * 60_000) rooms.delete(room.code); // abandoned for 12h
   }
   saveRooms();
 }, 10_000);

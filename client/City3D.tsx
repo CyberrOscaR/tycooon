@@ -8,6 +8,7 @@ import type { BuildingType, EventDef, PlayerState } from '../shared/game.ts';
 export interface City3DProps {
   p: PlayerState; readOnly: boolean; sel: number | null; money: number; tick: number; ev: EventDef | null;
   onSelect: (i: number) => void; onBuy: () => void; onFail: () => void;
+  onCollect: (i: number, e: React.MouseEvent) => void; onUpgrade: (i: number) => void;
 }
 
 type Anim = (t: number) => void;
@@ -72,6 +73,8 @@ function person(color: string) {
   g.add(cyl(0.035, 0.045, 0.12, color, 0, 0.06, 0, 6), ball(0.035, '#fcd9b6', 0, 0.15, 0, 1));
   return g;
 }
+
+const STAFF_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
 
 function building(type: BuildingType, anims: Anim[]) {
   const g = new THREE.Group();
@@ -138,6 +141,44 @@ function building(type: BuildingType, anims: Anim[]) {
       anims.push((t) => (coin.rotation.z = t * 2));
       break;
     }
+    case 'hotel': {
+      add(box(0.7, 0.95, 0.55, '#fb7185', 0, 0.475, -0.05));
+      for (let k = 1; k <= 4; k++) add(box(0.72, 0.06, 0.57, '#ffe4e6', 0, k * 0.2, -0.05, 0.3));
+      add(box(0.5, 0.14, 0.04, '#facc15', 0, 1.02, 0.2, 0.6), box(0.55, 0.03, 0.2, '#38bdf8', 0, 0.015, 0.38, 0.3));
+      break;
+    }
+    case 'park': {
+      add(box(0.9, 0.06, 0.8, '#fde68a', 0, 0.03, 0));
+      for (const x of [-0.14, 0.14]) {
+        const leg = box(0.04, 0.68, 0.04, '#94a3b8', x, 0.34, -0.05);
+        leg.rotation.z = x > 0 ? 0.22 : -0.22;
+        add(leg);
+      }
+      const wheel = new THREE.Group(), cabins: THREE.Object3D[] = [];
+      wheel.position.set(0, 0.64, -0.05);
+      wheel.add(mesh(new THREE.TorusGeometry(0.42, 0.025, 6, 24), '#ec4899', 0, 0, 0));
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        if (k < 4) { const spoke = box(0.02, 0.84, 0.02, '#f9a8d4', 0, 0, 0); spoke.rotation.z = a; wheel.add(spoke); }
+        const cabin = box(0.09, 0.08, 0.09, STAFF_COLORS[k % STAFF_COLORS.length], Math.cos(a) * 0.42, Math.sin(a) * 0.42, 0);
+        cabins.push(cabin);
+        wheel.add(cabin);
+      }
+      add(wheel);
+      anims.push((t) => { wheel.rotation.z = t * 0.5; cabins.forEach((c) => (c.rotation.z = -t * 0.5)); });
+      break;
+    }
+    case 'space': {
+      add(box(0.8, 0.08, 0.8, '#64748b', 0, 0.04, 0), box(0.08, 1.1, 0.08, '#f97316', -0.28, 0.55, -0.1));
+      const rocket = new THREE.Group();
+      rocket.add(cyl(0.12, 0.12, 0.7, '#f8fafc', 0, 0.45, 0, 12), mesh(new THREE.ConeGeometry(0.12, 0.25, 12), '#ef4444', 0, 0.925, 0),
+        box(0.06, 0.18, 0.2, '#ef4444', 0.12, 0.17, 0), box(0.06, 0.18, 0.2, '#ef4444', -0.12, 0.17, 0), ball(0.05, '#38bdf8', 0, 0.6, 0.11, 1));
+      rocket.position.x = 0.08;
+      add(rocket);
+      smoke(g, anims, 0.08, 0.1, 0, 0.06);
+      anims.push((t) => (rocket.position.y = 0.03 + Math.sin(t * 2) * 0.02));
+      break;
+    }
     case 'tech': {
       add(box(0.55, 1.1, 0.55, '#4f46e5', 0, 0.55, 0, 0.15));
       for (let k = 1; k <= 4; k++) add(box(0.57, 0.05, 0.57, '#c7d2fe', 0, k * 0.24, 0, 0.5));
@@ -152,7 +193,57 @@ function building(type: BuildingType, anims: Anim[]) {
   return g;
 }
 
-const STAFF_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
+// Monuments stand around the board, outside the roads
+const LANDMARK_POS: Record<G.LandmarkId, [number, number]> = {
+  fountain: [-3.5, 0.6], garden: [3.5, -0.6], statue: [-1.3, 2.9], stadium: [1.9, -3.3], tower: [3.5, 2.3], palace: [-2.3, -3.3],
+};
+function landmark(id: G.LandmarkId, anims: Anim[]) {
+  const g = new THREE.Group();
+  switch (id) {
+    case 'fountain': {
+      g.add(cyl(0.45, 0.5, 0.14, '#cbd5e1', 0, 0.07, 0, 16), cyl(0.4, 0.4, 0.02, '#38bdf8', 0, 0.145, 0, 16), cyl(0.06, 0.08, 0.35, '#e2e8f0', 0, 0.3, 0, 8));
+      const water = ball(0.09, '#7dd3fc', 0, 0.52, 0, 1);
+      g.add(water);
+      anims.push((t) => water.scale.setScalar(1 + Math.sin(t * 4) * 0.25));
+      break;
+    }
+    case 'garden':
+      g.add(cyl(0.55, 0.55, 0.08, '#4d7c0f', 0, 0.04, 0, 16), tree(-0.2, -0.15, 1.1), tree(0.22, 0.1, 0.9));
+      for (let k = 0; k < 10; k++) g.add(ball(0.05, STAFF_COLORS[k % 6], Math.cos(k) * 0.42, 0.11, Math.sin(k) * 0.42));
+      break;
+    case 'statue':
+      g.add(box(0.35, 0.4, 0.35, '#94a3b8', 0, 0.2, 0), cyl(0.07, 0.09, 0.35, '#fbbf24', 0, 0.575, 0, 8), ball(0.08, '#fbbf24', 0, 0.82, 0, 1));
+      {
+        const arm = box(0.04, 0.25, 0.04, '#fbbf24', 0.1, 0.8, 0);
+        arm.rotation.z = -0.5;
+        g.add(arm);
+      }
+      break;
+    case 'stadium': {
+      const stands = mesh(new THREE.TorusGeometry(0.62, 0.18, 6, 24), '#e2e8f0', 0, 0.16, 0);
+      stands.rotation.x = Math.PI / 2;
+      stands.scale.z = 0.8;
+      g.add(stands, cyl(0.5, 0.5, 0.04, '#22c55e', 0, 0.04, 0, 20));
+      for (const [x, z] of [[-0.75, -0.6], [0.75, -0.6], [-0.75, 0.6], [0.75, 0.6]]) g.add(cyl(0.02, 0.02, 0.8, '#64748b', x, 0.4, z, 5), box(0.12, 0.06, 0.04, '#fef9c3', x, 0.82, z, 0.8));
+      break;
+    }
+    case 'tower': {
+      g.add(cyl(0.06, 0.16, 2.6, '#e5e7eb', 0, 1.3, 0, 8), cyl(0.2, 0.2, 0.08, '#ef4444', 0, 1.3, 0, 12), cyl(0.15, 0.15, 0.06, '#ef4444', 0, 2.0, 0, 12));
+      const light = ball(0.06, '#ef4444', 0, 2.65, 0, 1);
+      g.add(light);
+      anims.push((t) => light.scale.setScalar(Math.sin(t * 5) > 0 ? 1.3 : 0.6));
+      break;
+    }
+    case 'palace':
+      g.add(box(1.0, 0.5, 0.6, '#fef3c7', 0, 0.25, 0), box(0.5, 0.35, 0.4, '#fde68a', 0, 0.675, 0), ball(0.18, '#fbbf24', 0, 0.95, 0, 1));
+      for (const [x, z] of [[-0.5, -0.3], [0.5, -0.3], [-0.5, 0.3], [0.5, 0.3]])
+        g.add(cyl(0.1, 0.1, 0.8, '#fef3c7', x, 0.4, z, 8), mesh(new THREE.ConeGeometry(0.13, 0.25, 8), '#fbbf24', x, 0.925, z));
+      break;
+  }
+  g.position.set(LANDMARK_POS[id][0], 0, LANDMARK_POS[id][1]);
+  return g;
+}
+
 const SLAB = { built: '#cbd5e1', empty: '#a16207', buy: '#86efac', locked: '#4d7c0f' };
 
 interface Slot { key: string; popKey: string; root: THREE.Group | null; slab: THREE.Mesh; anims: Anim[]; born: number; top: number }
@@ -231,7 +322,7 @@ export default function City3D(props: City3DProps) {
     });
 
     const clock = new THREE.Clock();
-    let owner = '';
+    let owner = '', landmarkKey: string | null = null, landmarks = new THREE.Group(), lmAnims: Anim[] = [];
     syncRef.current = () => {
       const { p, sel, readOnly } = propsRef.current;
       const sameOwner = owner === p.id;
@@ -252,7 +343,8 @@ export default function City3D(props: City3DProps) {
         root.userData.plot = i;
         if (b) {
           const g = building(b.type, anims);
-          g.scale.y = 1 + 0.15 * (b.level - 1);
+          if (b.type === 'park') g.scale.setScalar(1 + 0.07 * (b.level - 1)); // keep the wheel round
+          else g.scale.y = 1 + 0.15 * (b.level - 1);
           root.add(g);
           if (b.level >= G.MAX_BUILDING_LEVEL) {
             const star = mesh(new THREE.OctahedronGeometry(0.09), '#fbbf24', 0, new THREE.Box3().setFromObject(g).max.y + 0.15, 0, 0.5);
@@ -279,6 +371,16 @@ export default function City3D(props: City3DProps) {
         s.popKey = popKey;
       });
       flagMat.color.set(p.color);
+      const lmKey = p.landmarks.join();
+      if (lmKey !== landmarkKey) {
+        landmarkKey = lmKey;
+        scene.remove(landmarks);
+        landmarks.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+        landmarks = new THREE.Group();
+        lmAnims = [];
+        p.landmarks.forEach((id) => landmarks.add(landmark(id, lmAnims)));
+        scene.add(landmarks);
+      }
       selFrame.visible = sel !== null && !readOnly;
       if (sel !== null) selFrame.position.copy(PLOT_POS[sel]);
     };
@@ -337,6 +439,7 @@ export default function City3D(props: City3DProps) {
       const t = clock.getElapsedTime();
       controls.update();
       pole.children[1].rotation.y = Math.sin(t * 2) * 0.25;
+      lmAnims.forEach((a) => a(t));
       slots.forEach((s, i) => {
         s.anims.forEach((a) => a(t));
         if (s.root && s.born >= 0) {
@@ -383,6 +486,10 @@ export default function City3D(props: City3DProps) {
             <>
               {props.sel === i && <><span className="stars">{'★'.repeat(b.level)}</span>{b.staff > 0 && <span>👷{b.staff}</span>}</>}
               {mod > 1.01 ? '🔥' : mod < 0.99 ? '⚠️' : ''}
+              {!readOnly && b.level < G.MAX_BUILDING_LEVEL && money >= G.upgradeCost(b, p) && (
+                <button className="up3d" title="Mejorar" onClick={() => props.onUpgrade(i)}>⬆️</button>
+              )}
+              {!readOnly && p.bag?.plot === i && <button className="bag3d" title="¡Cobrar!" onClick={(e) => props.onCollect(i, e)}>💰</button>}
               {tick > 0 && <span className="earn" key={tick}>+{G.fmt(net)}</span>}
             </>
           );

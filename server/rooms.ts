@@ -7,7 +7,7 @@ import type { FeedItem, PlayerState, RoomEvent, RoomStatus, RoomView } from '../
 
 export interface Room {
   code: string; name: string; hostId: string; status: RoomStatus;
-  duration: number; goal: number; startedAt: number; endsAt: number; winnerId: string | null;
+  startedAt: number; winnerId: string | null;
   players: PlayerState[]; feed: FeedItem[];
   event: RoomEvent | null; nextEventAt: number;
   tokens: Record<string, string>; // playerId -> secret session token (never sent to other players)
@@ -37,7 +37,7 @@ export function createRoom(name: string): Room | string {
   if (rooms.size >= MAX_ROOMS) return 'El servidor está lleno, inténtalo más tarde';
   const room: Room = {
     code: newCode(), name: name || 'Partida', hostId: '', status: 'lobby',
-    duration: 20, goal: G.GOALS[20], startedAt: 0, endsAt: 0, winnerId: null,
+    startedAt: 0, winnerId: null,
     players: [], feed: [], event: null, nextEventAt: 0, tokens: {}, lastActive: Date.now(),
   };
   rooms.set(room.code, room);
@@ -50,7 +50,7 @@ export function addPlayer(room: Room, name: string) {
   const used = new Set(room.players.map((p) => p.color));
   const player: PlayerState = {
     id: randomUUID().slice(0, 8), name, color: G.PLAYER_COLORS.find((c) => !used.has(c)) ?? '#94a3b8',
-    money: G.START_MONEY, xp: 0, level: 1, plots: Array(G.START_PLOTS).fill(null), techs: [], mission: 0, online: true,
+    money: G.START_MONEY, xp: 0, level: 1, plots: Array(G.START_PLOTS).fill(null), techs: [], landmarks: [], maxed: [], bag: null, mission: 0, online: true,
   };
   const token = randomBytes(18).toString('base64url');
   room.players.push(player);
@@ -69,15 +69,11 @@ export function removePlayer(room: Room, id: string) {
   if (!room.players.length) rooms.delete(room.code);
 }
 
-export function startGame(room: Room, p: PlayerState, duration: number) {
+export function startGame(room: Room, p: PlayerState) {
   if (p.id !== room.hostId) return 'Solo el anfitrión puede empezar';
   if (room.status !== 'lobby') return 'La partida ya ha empezado';
-  const d = (G.DURATIONS as readonly number[]).includes(duration) ? duration : 20;
-  room.duration = d;
-  room.goal = G.GOALS[d];
   room.status = 'playing';
   room.startedAt = Date.now();
-  room.endsAt = room.startedAt + d * 60_000;
   room.nextEventAt = room.startedAt + 60_000;
   log(room, '¡La partida ha comenzado! 🏁');
 }
@@ -134,11 +130,14 @@ function applyAction(room: Room, p: PlayerState, m: Record<string, unknown>): st
     case 'upgrade': {
       if (!b) return 'No hay edificio';
       if (b.level >= G.MAX_BUILDING_LEVEL) return 'Ya está al nivel máximo';
-      const cost = G.upgradeCost(b);
+      const cost = G.upgradeCost(b, p);
       if (!spend(p, cost)) return NO_MONEY;
       b.level++;
       b.invested += cost;
-      if (b.level === G.MAX_BUILDING_LEVEL) log(room, `${p.name} llevó ${G.BUILDING[b.type].emoji} al nivel máximo`, p.color);
+      if (b.level === G.MAX_BUILDING_LEVEL && !p.maxed.includes(b.type)) {
+        p.maxed.push(b.type);
+        log(room, `${p.name} llevó ${G.BUILDING[b.type].emoji} ${G.BUILDING[b.type].name} al nivel máximo ⭐`, p.color);
+      }
       return;
     }
     case 'hire': {
@@ -176,6 +175,24 @@ function applyAction(room: Room, p: PlayerState, m: Record<string, unknown>): st
       log(room, `${p.name} investigó ${t.emoji} ${t.name}`, p.color);
       return;
     }
+    case 'landmark': {
+      if (typeof m.id !== 'string' || !Object.hasOwn(G.LANDMARK, m.id)) return 'Monumento desconocido';
+      const l = G.LANDMARK[m.id as G.LandmarkId];
+      if (p.landmarks.includes(l.id)) return 'Ya lo tienes';
+      if (p.level < l.unlock) return `Requiere nivel ${l.unlock}`;
+      if (!spend(p, l.cost)) return NO_MONEY;
+      p.landmarks.push(l.id);
+      log(room, `${p.name} levantó ${l.emoji} ${l.name}`, p.color);
+      return;
+    }
+    case 'collect': {
+      const bag = p.bag;
+      if (!bag || bag.plot !== m.plot || Date.now() > bag.expiresAt) return; // expired or already taken: ignore silently
+      p.money += bag.amount;
+      p.xp += bag.amount * 0.25;
+      p.bag = null;
+      return;
+    }
     case 'gift': {
       const to = room.players.find((x) => x.id === m.to && x !== p);
       const amount = Math.floor(Number(m.amount));
@@ -192,7 +209,20 @@ function applyAction(room: Room, p: PlayerState, m: Record<string, unknown>): st
   }
 }
 
-const ranking = (room: Room) => [...room.players].sort((a, b) => G.netWorth(b) - G.netWorth(a));
+/** Ranked by empire completion, then net worth. */
+const ranking = (room: Room) =>
+  [...room.players].sort((a, b) => G.completion(b).pct - G.completion(a).pct || G.netWorth(b) - G.netWorth(a));
+
+const nextBag = new WeakMap<PlayerState, number>(); // server-only timer, no need to persist
+function updateBag(p: PlayerState, income: number, now: number) {
+  if (p.bag && now > p.bag.expiresAt) p.bag = null;
+  const built = p.plots.flatMap((b, i) => (b ? [i] : []));
+  if (p.bag || !built.length || now < (nextBag.get(p) ?? 0)) return;
+  if (nextBag.has(p)) {
+    p.bag = { plot: built[Math.floor(Math.random() * built.length)], amount: Math.max(10, Math.round(income * G.BAG_SECONDS)), expiresAt: now + 12_000 };
+  }
+  nextBag.set(p, now + 15_000 + Math.random() * 15_000);
+}
 
 /** Advances the economy one tick. Returns true if the room changed. */
 export function tickRoom(room: Room, now = Date.now()) {
@@ -202,6 +232,7 @@ export function tickRoom(room: Room, now = Date.now()) {
   const ev = G.activeEvent(room, now);
   for (const p of room.players) {
     const r = G.rates(p, ev);
+    updateBag(p, r.income, now);
     p.money = Math.max(0, p.money + r.net * dt);
     p.xp += r.income * dt;
     const lvl = G.levelFromXp(p.xp);
@@ -211,12 +242,12 @@ export function tickRoom(room: Room, now = Date.now()) {
     }
     checkMissions(room, p);
   }
-  const leader = ranking(room)[0];
-  const goalReached = leader && G.netWorth(leader) >= room.goal;
-  if (goalReached || now >= room.endsAt) {
+  const winner = room.players.find((p) => G.completion(p).pct >= 100);
+  if (winner) {
     room.status = 'ended';
-    room.winnerId = leader?.id ?? null;
-    log(room, goalReached ? `🏆 ${leader.name} alcanzó el objetivo y gana la partida` : `⏱️ Tiempo agotado. ¡${leader?.name} gana!`);
+    room.winnerId = winner.id;
+    room.players.forEach((p) => (p.bag = null));
+    log(room, `🏆 ¡${winner.name} ha completado su imperio y gana la partida!`, winner.color);
   }
   return true;
 }
@@ -248,7 +279,13 @@ export function loadRooms() {
   try {
     const list = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) as Room[];
     for (const r of list) {
-      r.players.forEach((p) => { p.online = false; p.mission ??= 0; });
+      r.players.forEach((p) => {
+        p.online = false;
+        p.mission ??= 0;
+        p.landmarks ??= [];
+        p.maxed ??= [];
+        p.bag = null;
+      });
       r.event ??= null;
       r.nextEventAt ??= 0;
       rooms.set(r.code, r);

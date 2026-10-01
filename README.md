@@ -51,20 +51,23 @@ client/City3D.tsx Vista 3D con Three.js (edificios low-poly generados por códig
 ## Cómo se juega
 
 - Empiezas con **$250** y **3 parcelas**. Los edificios generan ingresos cada segundo, pero tienen mantenimiento.
-- **Edificios** (se desbloquean al subir de nivel): 🍋 Limonada → ☕ Cafetería → 🍕 Pizzería → 🛒 Supermercado → 🏭 Fábrica → 🏦 Banco → 🚀 Empresa tecnológica. Los avanzados rinden mucho más por parcela, pero tardan más en amortizarse.
+- **Edificios** (10, se desbloquean al subir de nivel): 🍋 Limonada → ☕ Cafetería → 🍕 Pizzería → 🛒 Supermercado → 🏨 Hotel → 🏭 Fábrica → 🏦 Banco → 🎡 Parque de atracciones → 🚀 Empresa tecnológica → 🛰️ Estación espacial. Los avanzados rinden mucho más por parcela, pero tardan más en amortizarse.
 - **Mejorar** un edificio (hasta nivel 5) multiplica sus ingresos y añade puestos de trabajo.
 - **Empleados:** +25 % de ingresos del edificio cada uno, a cambio de un salario. Puedes despedirlos para ahorrar gastos.
 - **Parcelas:** compra nuevas (hasta 12), cada una más cara que la anterior.
-- **Investigaciones:** bonificaciones permanentes (menos mantenimiento, más ingresos, mejores empleados, parcelas más baratas).
+- **Investigaciones (10):** bonificaciones permanentes: menos mantenimiento, más ingresos, mejores empleados, salarios más bajos, mejoras y parcelas más baratas, intereses por el dinero en caja e inteligencia artificial (+50 %).
 - **Nivel de jugador:** la XP sale de lo que ingresas y de lo que inviertes. Cada nivel desbloquea contenido y da +3 % de ingresos.
 - **Vender** un edificio te devuelve el 60 % de lo invertido.
 - **Cooperar:** desde la ciudad de otro jugador puedes enviarle dinero (hasta el 50 % del tuyo).
-- **Misiones:** una cadena de 20 objetivos con recompensa en dinero, que además sirve de tutorial.
+- **Misiones:** una cadena de 24 objetivos con recompensa en dinero, que además sirve de tutorial.
+- **Monumentos (6):** ⛲ Fuente, 🌷 Jardín botánico, 🗿 Estatua, 🏟️ Estadio, 🗼 Torre y 🏰 Palacio. Dan bonificaciones permanentes y aparecen en la ciudad 3D.
+- **Sacos de dinero 💰:** aparecen cada poco sobre tus edificios. Tócalos antes de 12 s para cobrar 10 s de ingresos de golpe.
+- **Mejora rápida ⬆️:** cada edificio muestra un botón para mejorarlo directamente cuando te lo puedes permitir.
 - **Eventos aleatorios** (cada 1-2 min, iguales para toda la sala): ☀️ Ola de calor, ✈️ Boom turístico, 🎉 Festival gastronómico, 🐂 Bolsa al alza, 🪧 Huelga, 🔌 Apagón, 📈 Inflación y 👼 Inversor ángel (ayuda al que va último). Los edificios afectados se marcan en el mapa con 🔥 o ⚠️.
 - **Chat y reacciones** en el registro de actividad, también en el lobby.
 - **Sonidos** sintetizados con WebAudio (sin archivos), con botón de silencio 🔊.
 - **Ciudad en 3D:** gira la cámara arrastrando y haz zoom con la rueda o pellizcando. Toca una parcela para construir o mejorar. El botón *Vista 2D* cambia a la cuadrícula clásica (también se usa sola si el dispositivo no soporta WebGL). Three.js solo se descarga al entrar en una partida.
-- **Victoria:** gana el mayor **patrimonio** (dinero + valor de venta de los edificios) al acabar el tiempo (10, 20 o 30 min), o el primero que alcance la meta de la partida.
+- **Victoria (sin límite de tiempo):** gana el primero en completar el **100 % de su imperio**: todas las parcelas, todas las investigaciones, todos los monumentos y cada tipo de edificio llevado alguna vez a nivel 5 (la colección de la pestaña *Imperio*). El ranking se ordena por ese porcentaje.
 
 ## Fase 2
 
