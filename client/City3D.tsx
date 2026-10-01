@@ -25,7 +25,10 @@ const mats = new Map<string, THREE.MeshLambertMaterial>();
 function mat(color: string, glow = 0) {
   const key = color + glow;
   let m = mats.get(key);
-  if (!m) mats.set(key, (m = new THREE.MeshLambertMaterial({ color, emissive: glow ? color : 0x000000, emissiveIntensity: glow })));
+  if (!m) {
+    mats.set(key, (m = new THREE.MeshLambertMaterial({ color, emissive: glow ? color : 0x000000, emissiveIntensity: glow })));
+    m.userData.glow = glow; // windows and lights shine brighter at night
+  }
   return m;
 }
 function mesh(geo: THREE.BufferGeometry, color: string, x: number, y: number, z: number, glow = 0) {
@@ -331,7 +334,8 @@ export default function City3D(props: City3DProps) {
     controls.target.set(0, 0.3, 0);
     Object.assign(controls, { enableDamping: true, enablePan: false, minDistance: 4, maxDistance: 26, minPolarAngle: 0.25, maxPolarAngle: 1.3 });
 
-    scene.add(new THREE.HemisphereLight('#dbeafe', '#3f6212', 1.8));
+    const hemi = new THREE.HemisphereLight('#dbeafe', '#3f6212', 1.8);
+    scene.add(hemi);
     const sun = new THREE.DirectionalLight('#fff7e6', 2.4);
     sun.position.set(4, 9, 5);
     sun.castShadow = true;
@@ -379,6 +383,64 @@ export default function City3D(props: City3DProps) {
     });
 
     const clock = new THREE.Clock();
+
+    // --- Living city: traffic, pedestrians and particles
+    const movers: { obj: THREE.Object3D; s: number; speed: number; hx: number; hz: number; cz: number; walk: boolean }[] = [];
+    let moverKey = '';
+    const CAR_COLORS = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981', '#f8fafc', '#a855f7', '#0f172a'];
+    const car = (color: string) => {
+      const c = new THREE.Group();
+      c.add(box(0.24, 0.07, 0.12, color, 0, 0.06, 0), box(0.12, 0.06, 0.1, '#bae6fd', -0.02, 0.12, 0),
+        box(0.02, 0.03, 0.03, '#fde047', 0.12, 0.06, 0.035, 0.9), box(0.02, 0.03, 0.03, '#fde047', 0.12, 0.06, -0.035, 0.9));
+      return c;
+    };
+    /** Position on a rectangular loop around a district, plus the heading. */
+    const onLoop = (m: (typeof movers)[number]) => {
+      const { hx, hz } = m, per = 4 * (hx + hz), d = ((m.s % per) + per) % per;
+      if (d < 2 * hx) return [-hx + d, hz, 0] as const;
+      if (d < 2 * hx + 2 * hz) return [hx, hz - (d - 2 * hx), Math.PI / 2] as const;
+      if (d < 4 * hx + 2 * hz) return [hx - (d - 2 * hx - 2 * hz), -hz, Math.PI] as const;
+      return [-hx, -hz + (d - 4 * hx - 2 * hz), -Math.PI / 2] as const;
+    };
+    const syncMovers = (p: PlayerState) => {
+      const counts = [0, 1].map((d) => {
+        const plots = p.plots.slice(d * G.DISTRICT_SIZE, (d + 1) * G.DISTRICT_SIZE).filter(Boolean) as G.Building[];
+        if (d > 0 && p.districts < 2) return [0, 0];
+        return [plots.length ? Math.min(6, 2 + Math.floor(plots.length / 3)) : 0, Math.min(8, Math.floor(plots.reduce((n, b) => n + b.staff, 0) / 2))];
+      });
+      const key = counts.flat().join();
+      if (key === moverKey) return;
+      moverKey = key;
+      movers.splice(0).forEach((m) => { scene.remove(m.obj); m.obj.traverse((o) => (o as THREE.Mesh).geometry?.dispose()); });
+      counts.forEach(([cars, people], d) => {
+        const cz = d * DISTRICT_Z;
+        for (let k = 0; k < cars; k++) {
+          const obj = car(CAR_COLORS[(k + d * 3) % CAR_COLORS.length]);
+          movers.push({ obj, s: k * 3.1, speed: 0.55 + rand(k + d * 7) * 0.4, hx: 2.54, hz: 1.91, cz, walk: false });
+        }
+        for (let k = 0; k < people; k++) {
+          const obj = person(STAFF_COLORS[k % STAFF_COLORS.length]);
+          obj.scale.setScalar(1.3);
+          movers.push({ obj, s: k * 2.3, speed: (k % 2 ? 1 : -1) * (0.12 + rand(k + 40) * 0.08), hx: 2.95, hz: 2.35, cz, walk: true });
+        }
+      });
+      movers.forEach((m) => scene.add(m.obj));
+    };
+
+    const PGEO = new THREE.IcosahedronGeometry(0.035, 0);
+    const PMATS = ['#fbbf24', '#f472b6', '#60a5fa', '#34d399', '#f87171', '#ffffff'].map((c) => new THREE.MeshBasicMaterial({ color: c }));
+    const parts: { m: THREE.Mesh; v: THREE.Vector3; life: number }[] = [];
+    const pending: { at: number; x: number; y: number; z: number; n: number; speed: number }[] = [];
+    const burst = (x: number, y: number, z: number, n: number, speed: number) => {
+      for (let k = 0; k < n; k++) {
+        const m = new THREE.Mesh(PGEO, PMATS[k % PMATS.length]);
+        m.position.set(x, y, z);
+        const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.2, Math.random() - 0.5).normalize().multiplyScalar(speed * (0.6 + Math.random() * 0.6));
+        parts.push({ m, v, life: 1 + Math.random() * 0.6 });
+        scene.add(m);
+      }
+    };
+    let lastLevel = 0, lastT = 0, lastNight = -1;
     let w = 1, h = 1, districts = 1;
     /** Points the camera at the whole city (both districts once the second one is unlocked). */
     const reframe = () => {
@@ -435,10 +497,19 @@ export default function City3D(props: City3DProps) {
         s.anims = anims;
         s.top = b ? new THREE.Box3().setFromObject(root).max.y + 0.05 : state === 'buy' ? 0.6 : 0.25;
         const popKey = b ? `${b.type}:${b.level}` : state;
-        if (sameOwner && b && popKey !== s.popKey) s.born = clock.getElapsedTime();
+        if (sameOwner && b && popKey !== s.popKey) {
+          s.born = clock.getElapsedTime();
+          burst(PLOT_POS[i].x, 0.4, PLOT_POS[i].z, 26, 1.6); // construction / upgrade sparkle
+        }
         s.popKey = popKey;
       });
       flagMat.color.set(p.color);
+      syncMovers(p);
+      if (sameOwner && p.level > lastLevel && lastLevel > 0) {
+        const now = clock.getElapsedTime(); // level up: fireworks over the city
+        for (let k = 0; k < 4; k++) pending.push({ at: now + k * 0.45, x: (Math.random() - 0.5) * 5, y: 3 + Math.random(), z: (p.districts > 1 ? DISTRICT_Z / 2 : 0) + (Math.random() - 0.5) * 3, n: 46, speed: 2.4 });
+      }
+      lastLevel = p.level;
       const lmKey = p.landmarks.join();
       if (lmKey !== landmarkKey) {
         landmarkKey = lmKey;
@@ -500,7 +571,35 @@ export default function City3D(props: City3DProps) {
     let raf = 0;
     const loop = () => {
       raf = requestAnimationFrame(loop);
-      const t = clock.getElapsedTime();
+      const t = clock.getElapsedTime(), dt = Math.min(0.05, t - lastT);
+      lastT = t;
+
+      // Day/night cycle (4 min): dimmer lights, darker sky, glowing windows
+      const daylight = 0.5 + 0.5 * Math.cos((t / 240) * Math.PI * 2);
+      const night = 1 - THREE.MathUtils.smoothstep(daylight, 0.12, 0.42);
+      if (Math.abs(night - lastNight) > 0.01) {
+        lastNight = night;
+        sun.intensity = 2.4 - 2.05 * night;
+        sun.color.set(night > 0.5 ? '#c7d2fe' : '#fff7e6');
+        hemi.intensity = 1.8 - 1.35 * night;
+        mats.forEach((m) => { if (m.userData.glow) m.emissiveIntensity = m.userData.glow * (1 + 1.6 * night); });
+        wrap.style.setProperty('--night', night.toFixed(2));
+      }
+      movers.forEach((m) => {
+        m.s += m.speed * dt;
+        const [x, z, heading] = onLoop(m);
+        m.obj.position.set(x, m.walk ? Math.abs(Math.sin(t * 9 + m.s)) * 0.025 : 0, z + m.cz);
+        m.obj.rotation.y = heading + (m.speed < 0 ? Math.PI : 0);
+      });
+      while (pending.length && pending[0].at <= t) { const f = pending.shift()!; burst(f.x, f.y, f.z, f.n, f.speed); }
+      for (let k = parts.length - 1; k >= 0; k--) {
+        const q = parts[k];
+        q.v.y -= 2.2 * dt;
+        q.m.position.addScaledVector(q.v, dt);
+        q.life -= dt;
+        q.m.scale.setScalar(Math.max(0.01, Math.min(1, q.life)));
+        if (q.life <= 0) { scene.remove(q.m); parts.splice(k, 1); }
+      }
       controls.update();
       pole.children[1].rotation.y = Math.sin(t * 2) * 0.25;
       lmAnims.forEach((a) => a(t));
@@ -526,6 +625,8 @@ export default function City3D(props: City3DProps) {
       controls.dispose();
       scene.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
       mats.forEach((m) => m.dispose());
+      PGEO.dispose();
+      PMATS.forEach((m) => m.dispose());
       mats.clear();
       flagMat.dispose();
       renderer.dispose();

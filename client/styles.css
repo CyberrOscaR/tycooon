@@ -245,6 +245,13 @@ h1, h2, h3, h4 { margin: 0 0 8px; }
 /* absolute so the canvas never feeds its pixel size back into the layout */
 .city3d canvas { display: block; touch-action: none; position: absolute; inset: 0; }
 .city3d.loading { display: grid; place-items: center; }
+/* night sky fades in behind the transparent canvas */
+.city3d::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; opacity: var(--night, 0);
+  background: radial-gradient(1px 1px at 20% 15%, #fff, transparent), radial-gradient(1px 1px at 70% 8%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 45% 22%, #fff, transparent), radial-gradient(1px 1px at 85% 30%, #fff, transparent),
+    linear-gradient(180deg, #0b1026 0%, #1e1b4b 50%, #312e81 100%);
+}
 .tag3d {
   position: absolute; left: 0; top: 0; pointer-events: none; white-space: nowrap; will-change: transform;
   background: #0b1220cc; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 99px;
