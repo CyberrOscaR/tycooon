@@ -1,0 +1,219 @@
+// Authoritative game state. Clients only send intents; every rule is checked here.
+import { randomBytes, randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import * as G from '../shared/game.ts';
+import type { FeedItem, PlayerState, RoomStatus, RoomView } from '../shared/game.ts';
+
+export interface Room {
+  code: string; name: string; hostId: string; status: RoomStatus;
+  duration: number; goal: number; startedAt: number; endsAt: number; winnerId: string | null;
+  players: PlayerState[]; feed: FeedItem[];
+  tokens: Record<string, string>; // playerId -> secret session token (never sent to other players)
+  lastActive: number;
+}
+
+export const rooms = new Map<string, Room>();
+const MAX_ROOMS = 300;
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function newCode() {
+  let c: string;
+  do c = Array.from(randomBytes(5), (x) => CODE_CHARS[x % CODE_CHARS.length]).join('');
+  while (rooms.has(c));
+  return c;
+}
+
+export const cleanText = (s: unknown, max: number) =>
+  typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max) : '';
+
+export function log(room: Room, text: string, color?: string) {
+  room.feed.push({ ts: Date.now(), text, color });
+  if (room.feed.length > 30) room.feed.shift();
+}
+
+export function createRoom(name: string): Room | string {
+  if (rooms.size >= MAX_ROOMS) return 'El servidor está lleno, inténtalo más tarde';
+  const room: Room = {
+    code: newCode(), name: name || 'Partida', hostId: '', status: 'lobby',
+    duration: 20, goal: G.GOALS[20], startedAt: 0, endsAt: 0, winnerId: null,
+    players: [], feed: [], tokens: {}, lastActive: Date.now(),
+  };
+  rooms.set(room.code, room);
+  return room;
+}
+
+export function addPlayer(room: Room, name: string) {
+  if (room.status === 'ended') return 'La partida ya ha terminado';
+  if (room.players.length >= G.MAX_PLAYERS) return `La sala está llena (máx. ${G.MAX_PLAYERS})`;
+  const used = new Set(room.players.map((p) => p.color));
+  const player: PlayerState = {
+    id: randomUUID().slice(0, 8), name, color: G.PLAYER_COLORS.find((c) => !used.has(c)) ?? '#94a3b8',
+    money: G.START_MONEY, xp: 0, level: 1, plots: Array(G.START_PLOTS).fill(null), techs: [], online: true,
+  };
+  const token = randomBytes(18).toString('base64url');
+  room.players.push(player);
+  room.tokens[player.id] = token;
+  if (!room.hostId) room.hostId = player.id;
+  log(room, `${name} se ha unido`, player.color);
+  return { player, token };
+}
+
+export function removePlayer(room: Room, id: string) {
+  const p = room.players.find((x) => x.id === id);
+  room.players = room.players.filter((x) => x.id !== id);
+  delete room.tokens[id];
+  if (room.hostId === id) room.hostId = room.players[0]?.id ?? '';
+  if (p) log(room, `${p.name} ha salido`, p.color);
+  if (!room.players.length) rooms.delete(room.code);
+}
+
+export function startGame(room: Room, p: PlayerState, duration: number) {
+  if (p.id !== room.hostId) return 'Solo el anfitrión puede empezar';
+  if (room.status !== 'lobby') return 'La partida ya ha empezado';
+  const d = (G.DURATIONS as readonly number[]).includes(duration) ? duration : 20;
+  room.duration = d;
+  room.goal = G.GOALS[d];
+  room.status = 'playing';
+  room.startedAt = Date.now();
+  room.endsAt = room.startedAt + d * 60_000;
+  log(room, '¡La partida ha comenzado! 🏁');
+}
+
+/** Pays for an investment. Investing also gives XP (25% of the amount). */
+function spend(p: PlayerState, amount: number) {
+  if (p.money < amount) return false;
+  p.money -= amount;
+  p.xp += amount * 0.25;
+  return true;
+}
+
+export function act(room: Room, p: PlayerState, m: Record<string, unknown>): string | void {
+  if (room.status !== 'playing') return 'La partida no está en curso';
+  const i = Number.isInteger(m.plot) && (m.plot as number) >= 0 && (m.plot as number) < p.plots.length ? (m.plot as number) : -1;
+  const b = i >= 0 ? p.plots[i] : null;
+  const NO_MONEY = 'Dinero insuficiente';
+
+  switch (m.t) {
+    case 'build': {
+      if (typeof m.type !== 'string' || !Object.hasOwn(G.BUILDING, m.type)) return 'Edificio desconocido';
+      const def = G.BUILDING[m.type as G.BuildingType];
+      if (i < 0 || b) return 'Parcela no disponible';
+      if (p.level < def.unlock) return `Requiere nivel ${def.unlock}`;
+      if (!spend(p, def.cost)) return NO_MONEY;
+      p.plots[i] = { type: def.id, level: 1, staff: 0, invested: def.cost };
+      log(room, `${p.name} construyó ${def.emoji} ${def.name}`, p.color);
+      return;
+    }
+    case 'upgrade': {
+      if (!b) return 'No hay edificio';
+      if (b.level >= G.MAX_BUILDING_LEVEL) return 'Ya está al nivel máximo';
+      const cost = G.upgradeCost(b);
+      if (!spend(p, cost)) return NO_MONEY;
+      b.level++;
+      b.invested += cost;
+      if (b.level === G.MAX_BUILDING_LEVEL) log(room, `${p.name} llevó ${G.BUILDING[b.type].emoji} al nivel máximo`, p.color);
+      return;
+    }
+    case 'hire': {
+      if (!b) return 'No hay edificio';
+      if (b.staff >= G.maxStaff(b)) return 'Plantilla completa: mejora el edificio';
+      if (!spend(p, G.hireCost(b))) return NO_MONEY;
+      b.staff++;
+      return;
+    }
+    case 'fire': {
+      if (!b || b.staff <= 0) return 'No hay empleados';
+      b.staff--;
+      return;
+    }
+    case 'sell': {
+      if (!b) return 'No hay edificio';
+      p.money += G.sellValue(b);
+      p.plots[i] = null;
+      log(room, `${p.name} vendió ${G.BUILDING[b.type].emoji} ${G.BUILDING[b.type].name}`, p.color);
+      return;
+    }
+    case 'buyPlot': {
+      if (p.plots.length >= G.MAX_PLOTS) return 'Ya tienes todas las parcelas';
+      if (!spend(p, G.plotCost(p))) return NO_MONEY;
+      p.plots.push(null);
+      return;
+    }
+    case 'research': {
+      if (typeof m.tech !== 'string' || !Object.hasOwn(G.TECH, m.tech)) return 'Tecnología desconocida';
+      const t = G.TECH[m.tech as G.TechId];
+      if (p.techs.includes(t.id)) return 'Ya investigada';
+      if (p.level < t.unlock) return `Requiere nivel ${t.unlock}`;
+      if (!spend(p, t.cost)) return NO_MONEY;
+      p.techs.push(t.id);
+      log(room, `${p.name} investigó ${t.emoji} ${t.name}`, p.color);
+      return;
+    }
+    case 'gift': {
+      const to = room.players.find((x) => x.id === m.to && x !== p);
+      const amount = Math.floor(Number(m.amount));
+      if (!to) return 'Jugador no encontrado';
+      if (!Number.isFinite(amount) || amount < 1) return 'Cantidad inválida';
+      if (amount > p.money * G.GIFT_MAX_RATIO) return 'Solo puedes enviar hasta el 50% de tu dinero';
+      p.money -= amount;
+      to.money += amount;
+      log(room, `${p.name} envió $${G.fmt(amount)} a ${to.name} 🤝`, p.color);
+      return;
+    }
+    default:
+      return 'Acción desconocida';
+  }
+}
+
+const ranking = (room: Room) => [...room.players].sort((a, b) => G.netWorth(b) - G.netWorth(a));
+
+/** Advances the economy one tick. Returns true if the room changed. */
+export function tickRoom(room: Room, now = Date.now()) {
+  if (room.status !== 'playing') return false;
+  const dt = G.TICK_MS / 1000;
+  for (const p of room.players) {
+    const r = G.rates(p);
+    p.money = Math.max(0, p.money + r.net * dt);
+    p.xp += r.income * dt;
+    const lvl = G.levelFromXp(p.xp);
+    if (lvl > p.level) {
+      p.level = lvl;
+      log(room, `${p.name} subió a nivel ${lvl} ⭐`, p.color);
+    }
+  }
+  const leader = ranking(room)[0];
+  const goalReached = leader && G.netWorth(leader) >= room.goal;
+  if (goalReached || now >= room.endsAt) {
+    room.status = 'ended';
+    room.winnerId = leader?.id ?? null;
+    log(room, goalReached ? `🏆 ${leader.name} alcanzó el objetivo y gana la partida` : `⏱️ Tiempo agotado. ¡${leader?.name} gana!`);
+  }
+  return true;
+}
+
+export function view(room: Room): RoomView {
+  const { tokens, lastActive, ...rest } = room;
+  const players = room.players.map((p) => ({ ...p, money: Math.floor(p.money * 100) / 100, xp: Math.floor(p.xp) }));
+  return { ...rest, players, now: Date.now() };
+}
+
+// --- Persistence: a single JSON snapshot, enough to survive reloads and restarts.
+const DATA_FILE = process.env.DATA_FILE || 'data/rooms.json';
+
+export function loadRooms() {
+  try {
+    const list = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) as Room[];
+    for (const r of list) {
+      r.players.forEach((p) => (p.online = false));
+      rooms.set(r.code, r);
+    }
+    console.log(`Cargadas ${list.length} partidas de ${DATA_FILE}`);
+  } catch { /* first run */ }
+}
+
+export function saveRooms() {
+  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
+  fs.writeFileSync(DATA_FILE + '.tmp', JSON.stringify([...rooms.values()]));
+  fs.renameSync(DATA_FILE + '.tmp', DATA_FILE);
+}
