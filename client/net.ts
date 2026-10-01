@@ -1,6 +1,7 @@
 // WebSocket connection + tiny global store (no extra state library needed).
 import { useSyncExternalStore } from 'react';
 import type { RoomView } from '../shared/game.ts';
+import { play } from './sound.ts';
 
 export type ConnStatus = 'connecting' | 'online' | 'offline';
 export interface Toast { id: number; text: string; kind: 'error' | 'info' | 'good' }
@@ -71,6 +72,7 @@ function connect() {
         break;
       case 'error':
         toast(m.msg, 'error');
+        play('error');
         break;
     }
   };

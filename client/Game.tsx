@@ -1,15 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import * as G from '../shared/game.ts';
 import type { Building, PlayerState, RoomView } from '../shared/game.ts';
-import { send, toast, useStore } from './net.ts';
+import { send as netSend, toast, useStore } from './net.ts';
 import { ConnDot } from './App.tsx';
+import { isMuted, play, toggleMute } from './sound.ts';
 
 const $ = (n: number) => '$' + G.fmt(n);
 const mmss = (ms: number) => {
   const s = Math.ceil(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
-const netOf = (b: Building, p: PlayerState) => G.buildingIncome(b, p) - G.buildingExpense(b, p);
+const netOf = (b: Building, p: PlayerState, ev?: G.EventDef | null) => G.buildingIncome(b, p, ev) - G.buildingExpense(b, p, ev);
+/** Game actions: send to the server with instant audio feedback. */
+const send = (m: Record<string, unknown>) => {
+  netSend(m);
+  play(m.t === 'sell' ? 'sell' : 'buy');
+};
 const ranking = (room: RoomView) => [...room.players].sort((a, b) => G.netWorth(b) - G.netWorth(a));
 
 function useTicker(ms: number) {
@@ -26,6 +32,7 @@ export function Game() {
   const [tab, setTab] = useState<'build' | 'tech' | 'players'>('build');
   const [viewing, setViewing] = useState<string | null>(null);
   const [hideEnd, setHideEnd] = useState(false);
+  const [muted, setMuted] = useState(isMuted());
   const panelRef = useRef<HTMLElement>(null);
   const player = room?.players.find((p) => p.id === me);
   const lastLevel = useRef(player?.level ?? 1);
@@ -36,17 +43,39 @@ export function Game() {
     if (player.level > lastLevel.current) {
       const news = [...G.BUILDINGS, ...G.TECHS].filter((x) => x.unlock === player.level).map((x) => x.emoji + ' ' + x.name);
       toast(`⭐ ¡Nivel ${player.level}!${news.length ? ' Desbloqueado: ' + news.join(', ') : ''}`, 'good');
+      play('level');
     }
     lastLevel.current = player.level;
   }, [player?.level]);
 
+  const lastMission = useRef(player?.mission ?? 0);
+  useEffect(() => {
+    if (!player) return;
+    if (player.mission > lastMission.current) {
+      toast(`🎯 ¡Misión completada! +$${G.fmt(G.MISSIONS[player.mission - 1].reward)}`, 'good');
+      play('mission');
+    }
+    lastMission.current = player.mission;
+  }, [player?.mission]);
+
+  useEffect(() => {
+    const e = room?.event;
+    if (!e || room.status !== 'playing' || e.endsAt <= room.now) return;
+    const d = G.EVENT[e.id];
+    if (d) { toast(`${d.emoji} ${d.name}: ${d.desc}`); play('event'); }
+  }, [room?.event?.endsAt]);
+
+  useEffect(() => { if (room?.status === 'ended') play('win'); }, [room?.status]);
+
   if (!room || !player) return null;
 
   const playing = room.status === 'playing';
-  const r = G.rates(player);
+  const serverNow = Date.now() + clockOffset;
+  const ev = playing ? G.activeEvent(room, serverNow) : null;
+  const r = G.rates(player, ev);
   // The server sends the real balance every second; in between we interpolate for a smooth counter.
   const money = playing ? player.money + r.net * Math.min(1, (performance.now() - receivedAt) / 1000) : player.money;
-  const left = Math.max(0, room.endsAt - (Date.now() + clockOffset));
+  const left = Math.max(0, room.endsAt - serverNow);
   const ranked = ranking(room);
   const rank = ranked.findIndex((p) => p.id === me) + 1;
   const lvlFrom = G.LEVEL_XP[player.level - 1], lvlTo = G.LEVEL_XP[player.level];
@@ -71,6 +100,7 @@ export function Game() {
           <small>Meta {$(room.goal)}</small>
         </div>
         <ConnDot status={status} />
+        <button className="btn ghost small" onClick={() => setMuted(toggleMute())} title={muted ? 'Activar sonido' : 'Silenciar'}>{muted ? '🔇' : '🔊'}</button>
         <button className="btn ghost small" onClick={leave}>Salir</button>
       </header>
 
@@ -86,11 +116,20 @@ export function Game() {
         <div className="stat"><label>Ranking</label><b>#{rank}<small> de {room.players.length}</small></b><small>Patrimonio {$(G.netWorth(player))}</small></div>
       </section>
 
+      {ev && (
+        <div className="event-banner">
+          <span className="ev-emoji">{ev.emoji}</span>
+          <div><b>{ev.name}</b><small>{ev.desc}</small></div>
+          <span className="ev-time">{mmss(room.event!.endsAt - serverNow)}</span>
+        </div>
+      )}
+
       <main className="layout">
         <div className="left">
+          {!readOnly && playing && <MissionCard p={player} />}
           {readOnly && <ViewingBanner target={shown} me={player} onBack={() => setViewing(null)} />}
-          <City p={shown} readOnly={readOnly} sel={readOnly ? null : sel} onSelect={select} money={money} tick={playing ? receivedAt : 0} />
-          <Feed room={room} />
+          <City p={shown} readOnly={readOnly} sel={readOnly ? null : sel} onSelect={select} money={money} tick={playing ? receivedAt : 0} ev={ev} />
+          <Feed room={room} me={player.id} />
         </div>
         <aside className="panel" ref={panelRef}>
           <nav className="tabs">
@@ -99,10 +138,10 @@ export function Game() {
             <button className={tab === 'players' ? 'on' : ''} onClick={() => setTab('players')}>👥 Jugadores</button>
           </nav>
           {tab === 'build' && (selB
-            ? <Details key={sel} p={player} i={sel!} money={money} onClose={() => setSel(null)} />
+            ? <Details key={sel} p={player} i={sel!} money={money} ev={ev} onClose={() => setSel(null)} />
             : <BuildList p={player} plot={sel !== null && !player.plots[sel] ? sel : null} money={money} onBuilt={() => setSel(null)} />)}
           {tab === 'tech' && <Techs p={player} money={money} />}
-          {tab === 'players' && <Players room={room} me={player.id} viewing={shown.id} onView={(id) => setViewing(id === player.id ? null : id)} />}
+          {tab === 'players' && <Players room={room} me={player.id} ev={ev} viewing={shown.id} onView={(id) => setViewing(id === player.id ? null : id)} />}
         </aside>
       </main>
 
@@ -111,8 +150,8 @@ export function Game() {
   );
 }
 
-function City({ p, readOnly, sel, onSelect, money, tick }: {
-  p: PlayerState; readOnly: boolean; sel: number | null; onSelect: (i: number) => void; money: number; tick: number;
+function City({ p, readOnly, sel, onSelect, money, tick, ev }: {
+  p: PlayerState; readOnly: boolean; sel: number | null; onSelect: (i: number) => void; money: number; tick: number; ev: G.EventDef | null;
 }) {
   const cells = [];
   for (let i = 0; i < G.MAX_PLOTS; i++) {
@@ -128,13 +167,14 @@ function City({ p, readOnly, sel, onSelect, money, tick }: {
       } else cells.push(<div key={i} className="plot locked">🔒</div>);
     } else if (b) {
       const d = G.BUILDING[b.type];
+      const mod = ev ? G.buildingIncome(b, p, ev) / G.buildingIncome(b, p) : 1;
       cells.push(
-        <button key={i} className={`plot built t-${b.type} ${sel === i ? 'sel' : ''}`} disabled={readOnly} onClick={() => onSelect(i)}>
+        <button key={i} className={`plot built t-${b.type} ${sel === i ? 'sel' : ''} ${mod > 1.01 ? 'boost' : mod < 0.99 ? 'nerf' : ''}`} disabled={readOnly} onClick={() => onSelect(i)}>
           <span className="emoji">{d.emoji}</span>
           <span className="bname">{d.name}</span>
           <span className="stars">{'★'.repeat(b.level)}<em>{'★'.repeat(G.MAX_BUILDING_LEVEL - b.level)}</em></span>
           {b.staff > 0 && <span className="staff">👷{b.staff}</span>}
-          {tick > 0 && <span className="earn" key={tick}>+{G.fmt(netOf(b, p))}</span>}
+          {tick > 0 && <span className="earn" key={tick}>+{G.fmt(netOf(b, p, ev))}</span>}
         </button>,
       );
     } else {
@@ -175,15 +215,15 @@ function BuildList({ p, plot, money, onBuilt }: { p: PlayerState; plot: number |
   );
 }
 
-function Details({ p, i, money, onClose }: { p: PlayerState; i: number; money: number; onClose: () => void }) {
+function Details({ p, i, money, ev, onClose }: { p: PlayerState; i: number; money: number; ev: G.EventDef | null; onClose: () => void }) {
   const [confirmSell, setConfirmSell] = useState(false);
   const b = p.plots[i]!;
   const d = G.BUILDING[b.type];
-  const net = netOf(b, p);
+  const net = netOf(b, p, ev);
   const maxed = b.level >= G.MAX_BUILDING_LEVEL;
   const upCost = G.upgradeCost(b), hireCost = G.hireCost(b);
-  const upGain = netOf({ ...b, level: b.level + 1 }, p) - net;
-  const hireGain = netOf({ ...b, staff: b.staff + 1 }, p) - net;
+  const upGain = netOf({ ...b, level: b.level + 1 }, p, ev) - net;
+  const hireGain = netOf({ ...b, staff: b.staff + 1 }, p, ev) - net;
   const full = b.staff >= G.maxStaff(b);
 
   return (
@@ -194,8 +234,8 @@ function Details({ p, i, money, onClose }: { p: PlayerState; i: number; money: n
         <button className="x" onClick={onClose} aria-label="Cerrar">✕</button>
       </div>
       <div className="det-stats">
-        <div><label>Ingresos</label><b className="green">+{$(G.buildingIncome(b, p))}/s</b></div>
-        <div><label>Gastos</label><b className="red">-{$(G.buildingExpense(b, p))}/s</b></div>
+        <div><label>Ingresos</label><b className="green">+{$(G.buildingIncome(b, p, ev))}/s</b></div>
+        <div><label>Gastos</label><b className="red">-{$(G.buildingExpense(b, p, ev))}/s</b></div>
         <div><label>Beneficio</label><b>{$(net)}/s</b></div>
       </div>
 
@@ -241,7 +281,7 @@ function Techs({ p, money }: { p: PlayerState; money: number }) {
   );
 }
 
-function Players({ room, me, viewing, onView }: { room: RoomView; me: string; viewing: string; onView: (id: string) => void }) {
+function Players({ room, me, ev, viewing, onView }: { room: RoomView; me: string; ev: G.EventDef | null; viewing: string; onView: (id: string) => void }) {
   return (
     <div className="list">
       <p className="hint">Toca un jugador para ver su ciudad.</p>
@@ -251,7 +291,7 @@ function Players({ room, me, viewing, onView }: { room: RoomView; me: string; vi
           <span className="avatar" style={{ background: p.color }}>{p.name[0]?.toUpperCase()}</span>
           <span className="info">
             <b>{p.name}{p.id === me && <em> (tú)</em>} <span className={`dot ${p.online ? 'on' : ''}`} /></b>
-            <small>Nv {p.level} · {$(G.rates(p).net)}/s · {p.plots.filter(Boolean).length} edificios</small>
+            <small>Nv {p.level} · {$(G.rates(p, ev).net)}/s · {p.plots.filter(Boolean).length} edificios</small>
           </span>
           <span className="price">{$(G.netWorth(p))}</span>
         </button>
@@ -274,15 +314,49 @@ function ViewingBanner({ target, me, onBack }: { target: PlayerState; me: Player
   );
 }
 
-function Feed({ room }: { room: RoomView }) {
+const REACTIONS = ['👏', '😂', '🔥', '😱', '🤝', '😈'];
+
+export function Feed({ room, me }: { room: RoomView; me: string }) {
+  const [text, setText] = useState('');
+  const last = room.feed[room.feed.length - 1];
+  const myName = room.players.find((p) => p.id === me)?.name;
+  useEffect(() => {
+    if (last?.from && last.from !== myName && room.now - last.ts < 3000) play('chat');
+  }, [last?.ts]);
+  const say = (t: string) => t.trim() && netSend({ t: 'chat', text: t.trim() });
+
   return (
     <div className="feed">
-      <h4>Actividad</h4>
+      <h4>Actividad y chat</h4>
+      <form className="chat" onSubmit={(e) => { e.preventDefault(); say(text); setText(''); }}>
+        <input value={text} maxLength={80} placeholder="Escribe un mensaje…" onChange={(e) => setText(e.target.value)} />
+        <button className="btn small" disabled={!text.trim()}>Enviar</button>
+      </form>
+      <div className="reactions">{REACTIONS.map((r) => <button key={r} onClick={() => say(r)}>{r}</button>)}</div>
       <ul>
-        {room.feed.slice(-8).reverse().map((f) => (
-          <li key={f.ts + f.text} style={{ borderColor: f.color ?? '#64748b' }}>{f.text}</li>
+        {room.feed.slice(-10).reverse().map((f) => (
+          <li key={f.ts + f.text} className={f.from ? 'msg' : ''} style={{ borderColor: f.color ?? '#64748b' }}>
+            {f.from ? <><b style={{ color: f.color }}>{f.from}:</b> {f.text}</> : f.text}
+          </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function MissionCard({ p }: { p: PlayerState }) {
+  const m = G.MISSIONS[p.mission];
+  if (!m) return <div className="mission"><span className="m-ico">🏅</span><b>¡Has completado todas las misiones!</b></div>;
+  const v = Math.max(0, Math.min(m.value(p), m.target));
+  const n = (x: number) => (Number.isInteger(x) ? x.toLocaleString('es-ES') : G.fmt(x));
+  return (
+    <div className="mission">
+      <span className="m-ico">🎯</span>
+      <div className="m-body">
+        <div className="m-top"><b>{m.text}</b><span className="m-reward">+{$(m.reward)}</span></div>
+        <div className="bar"><i style={{ width: `${(v / m.target) * 100}%` }} /></div>
+        <small>Misión {p.mission + 1} de {G.MISSIONS.length} · {n(v)} / {n(m.target)}</small>
+      </div>
     </div>
   );
 }

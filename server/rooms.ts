@@ -3,12 +3,13 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import * as G from '../shared/game.ts';
-import type { FeedItem, PlayerState, RoomStatus, RoomView } from '../shared/game.ts';
+import type { FeedItem, PlayerState, RoomEvent, RoomStatus, RoomView } from '../shared/game.ts';
 
 export interface Room {
   code: string; name: string; hostId: string; status: RoomStatus;
   duration: number; goal: number; startedAt: number; endsAt: number; winnerId: string | null;
   players: PlayerState[]; feed: FeedItem[];
+  event: RoomEvent | null; nextEventAt: number;
   tokens: Record<string, string>; // playerId -> secret session token (never sent to other players)
   lastActive: number;
 }
@@ -29,7 +30,7 @@ export const cleanText = (s: unknown, max: number) =>
 
 export function log(room: Room, text: string, color?: string) {
   room.feed.push({ ts: Date.now(), text, color });
-  if (room.feed.length > 30) room.feed.shift();
+  if (room.feed.length > 40) room.feed.shift();
 }
 
 export function createRoom(name: string): Room | string {
@@ -37,7 +38,7 @@ export function createRoom(name: string): Room | string {
   const room: Room = {
     code: newCode(), name: name || 'Partida', hostId: '', status: 'lobby',
     duration: 20, goal: G.GOALS[20], startedAt: 0, endsAt: 0, winnerId: null,
-    players: [], feed: [], tokens: {}, lastActive: Date.now(),
+    players: [], feed: [], event: null, nextEventAt: 0, tokens: {}, lastActive: Date.now(),
   };
   rooms.set(room.code, room);
   return room;
@@ -49,7 +50,7 @@ export function addPlayer(room: Room, name: string) {
   const used = new Set(room.players.map((p) => p.color));
   const player: PlayerState = {
     id: randomUUID().slice(0, 8), name, color: G.PLAYER_COLORS.find((c) => !used.has(c)) ?? '#94a3b8',
-    money: G.START_MONEY, xp: 0, level: 1, plots: Array(G.START_PLOTS).fill(null), techs: [], online: true,
+    money: G.START_MONEY, xp: 0, level: 1, plots: Array(G.START_PLOTS).fill(null), techs: [], mission: 0, online: true,
   };
   const token = randomBytes(18).toString('base64url');
   room.players.push(player);
@@ -77,6 +78,7 @@ export function startGame(room: Room, p: PlayerState, duration: number) {
   room.status = 'playing';
   room.startedAt = Date.now();
   room.endsAt = room.startedAt + d * 60_000;
+  room.nextEventAt = room.startedAt + 60_000;
   log(room, '¡La partida ha comenzado! 🏁');
 }
 
@@ -88,7 +90,31 @@ function spend(p: PlayerState, amount: number) {
   return true;
 }
 
-export function act(room: Room, p: PlayerState, m: Record<string, unknown>): string | void {
+export function act(room: Room, p: PlayerState, m: Record<string, unknown>) {
+  const err = applyAction(room, p, m);
+  if (!err) checkMissions(room, p);
+  return err;
+}
+
+function checkMissions(room: Room, p: PlayerState) {
+  for (let m = G.MISSIONS[p.mission]; m && m.value(p) >= m.target; m = G.MISSIONS[++p.mission]) {
+    p.money += m.reward;
+    log(room, `${p.name} completó la misión "${m.text}" (+$${G.fmt(m.reward)}) 🎯`, p.color);
+  }
+}
+
+const lastChat = new WeakMap<PlayerState, number>();
+export function chat(room: Room, p: PlayerState, text: unknown) {
+  const msg = cleanText(text, 80);
+  if (!msg) return;
+  const now = Date.now();
+  if (now - (lastChat.get(p) ?? 0) < 1200) return 'Espera un momento antes de volver a escribir';
+  lastChat.set(p, now);
+  room.feed.push({ ts: now, text: msg, color: p.color, from: p.name });
+  if (room.feed.length > 40) room.feed.shift();
+}
+
+function applyAction(room: Room, p: PlayerState, m: Record<string, unknown>): string | void {
   if (room.status !== 'playing') return 'La partida no está en curso';
   const i = Number.isInteger(m.plot) && (m.plot as number) >= 0 && (m.plot as number) < p.plots.length ? (m.plot as number) : -1;
   const b = i >= 0 ? p.plots[i] : null;
@@ -172,8 +198,10 @@ const ranking = (room: Room) => [...room.players].sort((a, b) => G.netWorth(b) -
 export function tickRoom(room: Room, now = Date.now()) {
   if (room.status !== 'playing') return false;
   const dt = G.TICK_MS / 1000;
+  if (now >= room.nextEventAt) startEvent(room, now);
+  const ev = G.activeEvent(room, now);
   for (const p of room.players) {
-    const r = G.rates(p);
+    const r = G.rates(p, ev);
     p.money = Math.max(0, p.money + r.net * dt);
     p.xp += r.income * dt;
     const lvl = G.levelFromXp(p.xp);
@@ -181,6 +209,7 @@ export function tickRoom(room: Room, now = Date.now()) {
       p.level = lvl;
       log(room, `${p.name} subió a nivel ${lvl} ⭐`, p.color);
     }
+    checkMissions(room, p);
   }
   const leader = ranking(room)[0];
   const goalReached = leader && G.netWorth(leader) >= room.goal;
@@ -192,8 +221,22 @@ export function tickRoom(room: Room, now = Date.now()) {
   return true;
 }
 
+function startEvent(room: Room, now: number) {
+  const ranked = ranking(room);
+  const options = G.EVENTS.filter((e) => e.id !== room.event?.id && (e.id !== 'angel' || ranked.length > 1));
+  const def = options[Math.floor(Math.random() * options.length)];
+  room.event = { id: def.id, endsAt: now + def.duration * 1000 };
+  room.nextEventAt = room.event.endsAt + (40 + Math.random() * 40) * 1000;
+  if (def.id === 'angel') {
+    const last = ranked[ranked.length - 1];
+    const amount = Math.round(Math.max(200, G.netWorth(ranked[0]) * 0.1));
+    last.money += amount;
+    log(room, `👼 Un inversor ángel apuesta por ${last.name}: +$${G.fmt(amount)}`, last.color);
+  } else log(room, `${def.emoji} ¡${def.name}! ${def.desc}`);
+}
+
 export function view(room: Room): RoomView {
-  const { tokens, lastActive, ...rest } = room;
+  const { tokens, lastActive, nextEventAt, ...rest } = room;
   const players = room.players.map((p) => ({ ...p, money: Math.floor(p.money * 100) / 100, xp: Math.floor(p.xp) }));
   return { ...rest, players, now: Date.now() };
 }
@@ -205,7 +248,9 @@ export function loadRooms() {
   try {
     const list = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) as Room[];
     for (const r of list) {
-      r.players.forEach((p) => (p.online = false));
+      r.players.forEach((p) => { p.online = false; p.mission ??= 0; });
+      r.event ??= null;
+      r.nextEventAt ??= 0;
       rooms.set(r.code, r);
     }
     console.log(`Cargadas ${list.length} partidas de ${DATA_FILE}`);

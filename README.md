@@ -58,8 +58,13 @@ client/           React + Vite: inicio, lobby, juego, ranking.
 - **Nivel de jugador:** la XP sale de lo que ingresas y de lo que inviertes. Cada nivel desbloquea contenido y da +3 % de ingresos.
 - **Vender** un edificio te devuelve el 60 % de lo invertido.
 - **Cooperar:** desde la ciudad de otro jugador puedes enviarle dinero (hasta el 50 % del tuyo).
+- **Misiones:** una cadena de 20 objetivos con recompensa en dinero, que además sirve de tutorial.
+- **Eventos aleatorios** (cada 1-2 min, iguales para toda la sala): ☀️ Ola de calor, ✈️ Boom turístico, 🎉 Festival gastronómico, 🐂 Bolsa al alza, 🪧 Huelga, 🔌 Apagón, 📈 Inflación y 👼 Inversor ángel (ayuda al que va último). Los edificios afectados se marcan en el mapa con 🔥 o ⚠️.
+- **Chat y reacciones** en el registro de actividad, también en el lobby.
+- **Sonidos** sintetizados con WebAudio (sin archivos), con botón de silencio 🔊.
 - **Victoria:** gana el mayor **patrimonio** (dinero + valor de venta de los edificios) al acabar el tiempo (10, 20 o 30 min), o el primero que alcance la meta de la partida.
 
-## Fase 2 (ideas, aún sin implementar)
+## Fase 2
 
-Eventos aleatorios, misiones, comercio entre jugadores, más recursos y edificios, personalización, sonidos y chat.
+Hecho: eventos aleatorios, misiones, chat con reacciones y sonidos.
+Pendiente: comercio entre jugadores, más recursos y edificios, personalización.

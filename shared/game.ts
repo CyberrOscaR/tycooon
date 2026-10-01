@@ -13,7 +13,7 @@ export const DURATIONS = [10, 20, 30] as const; // minutes
 export const PLAYER_COLORS = ['#f97316', '#22c55e', '#3b82f6', '#e11d48', '#a855f7', '#eab308', '#14b8a6', '#ec4899'];
 
 /** Net worth that ends the match early, per duration (minutes). */
-export const GOALS: Record<number, number> = { 10: 5_000, 20: 250_000, 30: 10_000_000 };
+export const GOALS: Record<number, number> = { 10: 10_000, 20: 1_000_000, 30: 100_000_000 };
 
 export type BuildingType = 'lemonade' | 'cafe' | 'pizzeria' | 'market' | 'factory' | 'bank' | 'tech';
 export type TechId = 'accounting' | 'marketing' | 'training' | 'urban' | 'automation' | 'franchise';
@@ -53,16 +53,19 @@ export interface PlayerState {
   money: number; xp: number; level: number;
   plots: (Building | null)[]; // length = owned plots
   techs: TechId[];
+  mission: number; // index of the current mission in MISSIONS
   online: boolean;
 }
 
 export type RoomStatus = 'lobby' | 'playing' | 'ended';
-export interface FeedItem { ts: number; text: string; color?: string }
+export interface FeedItem { ts: number; text: string; color?: string; from?: string } // `from` = chat message
+export interface RoomEvent { id: string; endsAt: number }
 
 export interface RoomView {
   code: string; name: string; hostId: string; status: RoomStatus;
   duration: number; goal: number; startedAt: number; endsAt: number;
   winnerId: string | null; players: PlayerState[]; feed: FeedItem[]; now: number;
+  event: RoomEvent | null; // last random event (active while endsAt > now)
 }
 
 // XP = lifetime gross income + 25% of money invested.
@@ -82,11 +85,12 @@ export const upkeepMult = (p: PlayerState) => (has(p, 'accounting') ? 0.8 : 1) *
 export const staffBoost = (p: PlayerState) => (has(p, 'training') ? 0.4 : 0.25);
 export const maxStaff = (b: Building) => b.level + 1;
 
-export const buildingIncome = (b: Building, p: PlayerState) =>
-  BUILDING[b.type].income * 1.5 ** (b.level - 1) * (1 + b.staff * staffBoost(p)) * incomeMult(p);
+export const buildingIncome = (b: Building, p: PlayerState, ev?: EventDef | null) =>
+  BUILDING[b.type].income * 1.5 ** (b.level - 1) * (1 + b.staff * staffBoost(p) * (ev?.staff ?? 1)) * incomeMult(p) *
+  (ev?.income ?? 1) * (ev?.types?.[b.type] ?? 1);
 export const staffWage = (b: Building) => BUILDING[b.type].income * 0.08 * 1.4 ** (b.level - 1);
-export const buildingExpense = (b: Building, p: PlayerState) =>
-  BUILDING[b.type].upkeep * 1.4 ** (b.level - 1) * upkeepMult(p) + b.staff * staffWage(b);
+export const buildingExpense = (b: Building, p: PlayerState, ev?: EventDef | null) =>
+  BUILDING[b.type].upkeep * 1.4 ** (b.level - 1) * upkeepMult(p) * (ev?.upkeep ?? 1) + b.staff * staffWage(b);
 
 export const upgradeCost = (b: Building) => Math.round(BUILDING[b.type].cost * 2 ** b.level);
 export const hireCost = (b: Building) => Math.round(BUILDING[b.type].cost * 0.3 * 1.5 ** (b.level - 1) * (b.staff + 1));
@@ -94,14 +98,64 @@ export const sellValue = (b: Building) => Math.floor(b.invested * SELL_RATIO);
 export const plotCost = (p: PlayerState) =>
   Math.round(120 * 2.4 ** (p.plots.length - START_PLOTS) * (has(p, 'urban') ? 0.6 : 1));
 
-export function rates(p: PlayerState) {
+export function rates(p: PlayerState, ev?: EventDef | null) {
   let income = 0, expense = 0;
-  for (const b of p.plots) if (b) { income += buildingIncome(b, p); expense += buildingExpense(b, p); }
+  for (const b of p.plots) if (b) { income += buildingIncome(b, p, ev); expense += buildingExpense(b, p, ev); }
   return { income, expense, net: income - expense };
 }
 
 export const netWorth = (p: PlayerState) =>
   p.money + p.plots.reduce((s, b) => s + (b ? sellValue(b) : 0), 0);
+
+// --- Random room events (same for every player in the room)
+export interface EventDef {
+  id: string; name: string; emoji: string; desc: string; duration: number; // seconds
+  income?: number; upkeep?: number; staff?: number; types?: Partial<Record<BuildingType, number>>;
+}
+export const EVENTS: EventDef[] = [
+  { id: 'heatwave', name: 'Ola de calor', emoji: '☀️', desc: 'Limonadas x2, cafeterías x1.5', duration: 40, types: { lemonade: 2, cafe: 1.5 } },
+  { id: 'tourism', name: 'Boom turístico', emoji: '✈️', desc: '+30% de ingresos para todos', duration: 40, income: 1.3 },
+  { id: 'foodfest', name: 'Festival gastronómico', emoji: '🎉', desc: 'Pizzerías x2, cafeterías y súper x1.5', duration: 40, types: { pizzeria: 2, cafe: 1.5, market: 1.5 } },
+  { id: 'bull', name: 'Bolsa al alza', emoji: '🐂', desc: 'Bancos y tecnológicas x1.6', duration: 40, types: { bank: 1.6, tech: 1.6 } },
+  { id: 'strike', name: 'Huelga general', emoji: '🪧', desc: 'Los empleados no producen (pero cobran)', duration: 30, staff: 0 },
+  { id: 'blackout', name: 'Apagón', emoji: '🔌', desc: 'Fábricas y tecnológicas -50%', duration: 30, types: { factory: 0.5, tech: 0.5 } },
+  { id: 'inflation', name: 'Inflación', emoji: '📈', desc: 'Mantenimiento +50%', duration: 40, upkeep: 1.5 },
+  { id: 'angel', name: 'Inversor ángel', emoji: '👼', desc: 'Apoya al jugador que va último', duration: 8 },
+];
+export const EVENT = Object.fromEntries(EVENTS.map((e) => [e.id, e])) as Record<string, EventDef>;
+export const activeEvent = (r: { event: RoomEvent | null }, now: number) =>
+  r.event && r.event.endsAt > now ? EVENT[r.event.id] ?? null : null;
+
+// --- Missions: a chain of short goals with cash rewards (also works as a tutorial)
+export interface MissionDef { text: string; target: number; reward: number; value: (p: PlayerState) => number }
+/** Buildings of type `t` or any better (later) type, so skipping a tier never blocks the chain. */
+const count = (p: PlayerState, t?: BuildingType) =>
+  p.plots.filter((b) => b && (!t || BUILDING[b.type].unlock >= BUILDING[t].unlock)).length;
+const staffCount = (p: PlayerState) => p.plots.reduce((s, b) => s + (b?.staff ?? 0), 0);
+const topLevel = (p: PlayerState) => Math.max(0, ...p.plots.map((b) => b?.level ?? 0));
+const profit = (p: PlayerState) => rates(p).net;
+export const MISSIONS: MissionDef[] = [
+  { text: 'Construye 3 edificios', target: 3, reward: 60, value: (p) => count(p) },
+  { text: 'Contrata 2 empleados', target: 2, reward: 80, value: staffCount },
+  { text: 'Compra una parcela nueva', target: 4, reward: 100, value: (p) => p.plots.length },
+  { text: 'Mejora un edificio a nivel 2', target: 2, reward: 120, value: topLevel },
+  { text: 'Construye una cafetería o algo mejor', target: 1, reward: 200, value: (p) => count(p, 'cafe') },
+  { text: 'Consigue $15/s de beneficio', target: 15, reward: 300, value: profit },
+  { text: 'Investiga una mejora', target: 1, reward: 400, value: (p) => p.techs.length },
+  { text: 'Construye una pizzería o algo mejor', target: 1, reward: 600, value: (p) => count(p, 'pizzeria') },
+  { text: 'Ten 6 edificios', target: 6, reward: 900, value: (p) => count(p) },
+  { text: 'Consigue $100/s de beneficio', target: 100, reward: 1_500, value: profit },
+  { text: 'Mejora un edificio a nivel 4', target: 4, reward: 3_000, value: topLevel },
+  { text: 'Construye un supermercado o algo mejor', target: 1, reward: 5_000, value: (p) => count(p, 'market') },
+  { text: 'Ten 20 empleados', target: 20, reward: 8_000, value: staffCount },
+  { text: 'Consigue $1.000/s de beneficio', target: 1_000, reward: 15_000, value: profit },
+  { text: 'Construye una fábrica o algo mejor', target: 1, reward: 25_000, value: (p) => count(p, 'factory') },
+  { text: 'Ten 10 parcelas', target: 10, reward: 40_000, value: (p) => p.plots.length },
+  { text: 'Consigue $5.000/s de beneficio', target: 5_000, reward: 80_000, value: profit },
+  { text: 'Construye un banco o algo mejor', target: 1, reward: 150_000, value: (p) => count(p, 'bank') },
+  { text: 'Investiga las 6 mejoras', target: 6, reward: 250_000, value: (p) => p.techs.length },
+  { text: 'Construye una empresa tecnológica', target: 1, reward: 600_000, value: (p) => count(p, 'tech') },
+];
 
 export function fmt(n: number) {
   const a = Math.abs(n);

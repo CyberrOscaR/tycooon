@@ -5,7 +5,7 @@ import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { TICK_MS } from '../shared/game.ts';
 import {
-  rooms, type Room, cleanText, createRoom, addPlayer, removePlayer, startGame, act, tickRoom, view, loadRooms, saveRooms,
+  rooms, type Room, cleanText, createRoom, addPlayer, removePlayer, startGame, act, chat, tickRoom, view, loadRooms, saveRooms,
 } from './rooms.ts';
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -123,7 +123,7 @@ function handle(c: Conn, m: Record<string, unknown>): string | void {
   const p = room?.players.find((x) => x.id === c.pid);
   if (!room || !p) return 'No estás en ninguna partida';
   room.lastActive = Date.now();
-  const err = m.t === 'start' ? startGame(room, p, Number(m.duration)) : act(room, p, m);
+  const err = m.t === 'start' ? startGame(room, p, Number(m.duration)) : m.t === 'chat' ? chat(room, p, m.text) : act(room, p, m);
   if (err) return err;
   broadcast(room);
 }

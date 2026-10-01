@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { DURATIONS, GOALS, MAX_PLAYERS, fmt } from '../shared/game.ts';
 import { send, useStore, savedName, saveName, toast, type ConnStatus } from './net.ts';
-import { Game } from './Game.tsx';
+import { Game, Feed } from './Game.tsx';
 
 export function App() {
   const s = useStore();
@@ -122,6 +122,8 @@ function Lobby() {
             </li>
           ))}
         </ul>
+
+        <Feed room={room} me={me!} />
 
         {isHost ? (
           <>
