@@ -4,5 +4,5 @@ export default defineConfig({
   root: 'client',
   esbuild: { jsx: 'automatic' },
   server: { fs: { allow: ['..'] } },
-  build: { outDir: '../dist', emptyOutDir: true },
+  build: { outDir: '../dist', emptyOutDir: true, chunkSizeWarningLimit: 700 },
 });

@@ -39,6 +39,7 @@ shared/game.ts    Reglas y economía (edificios, mejoras, niveles, fórmulas). L
 server/rooms.ts   Estado autoritativo: salas, validación de acciones, tick de producción, guardado JSON.
 server/index.ts   HTTP (archivos estáticos o Vite en desarrollo) + WebSocket en /ws, en el mismo puerto.
 client/           React + Vite: inicio, lobby, juego, ranking.
+client/City3D.tsx Vista 3D con Three.js (edificios low-poly generados por código, sin modelos externos).
 ```
 
 - **El servidor manda.** El cliente solo envía intenciones (`build`, `upgrade`, `hire`...); el servidor comprueba nivel, dinero, parcela y límites antes de aplicar nada. El dinero solo cambia en el servidor (tick de 1 s), así que tocarlo desde DevTools no sirve de nada.
@@ -62,9 +63,10 @@ client/           React + Vite: inicio, lobby, juego, ranking.
 - **Eventos aleatorios** (cada 1-2 min, iguales para toda la sala): ☀️ Ola de calor, ✈️ Boom turístico, 🎉 Festival gastronómico, 🐂 Bolsa al alza, 🪧 Huelga, 🔌 Apagón, 📈 Inflación y 👼 Inversor ángel (ayuda al que va último). Los edificios afectados se marcan en el mapa con 🔥 o ⚠️.
 - **Chat y reacciones** en el registro de actividad, también en el lobby.
 - **Sonidos** sintetizados con WebAudio (sin archivos), con botón de silencio 🔊.
+- **Ciudad en 3D:** gira la cámara arrastrando y haz zoom con la rueda o pellizcando. Toca una parcela para construir o mejorar. El botón *Vista 2D* cambia a la cuadrícula clásica (también se usa sola si el dispositivo no soporta WebGL). Three.js solo se descarga al entrar en una partida.
 - **Victoria:** gana el mayor **patrimonio** (dinero + valor de venta de los edificios) al acabar el tiempo (10, 20 o 30 min), o el primero que alcance la meta de la partida.
 
 ## Fase 2
 
-Hecho: eventos aleatorios, misiones, chat con reacciones y sonidos.
+Hecho: eventos aleatorios, misiones, chat con reacciones, sonidos y ciudad en 3D.
 Pendiente: comercio entre jugadores, más recursos y edificios, personalización.

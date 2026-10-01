@@ -1,9 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import * as G from '../shared/game.ts';
 import type { Building, PlayerState, RoomView } from '../shared/game.ts';
 import { send as netSend, toast, useStore } from './net.ts';
 import { ConnDot } from './App.tsx';
 import { isMuted, play, toggleMute } from './sound.ts';
+
+// The 3D view (Three.js) is loaded on demand so the home screen stays light.
+const City3D = lazy(() => import('./City3D.tsx'));
+const WEBGL = (() => {
+  try { const c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch { return false; }
+})();
+const pref3d = () => { try { return localStorage.getItem('tycooon-3d') !== '0'; } catch { return true; } };
 
 const $ = (n: number) => '$' + G.fmt(n);
 const mmss = (ms: number) => {
@@ -33,6 +40,11 @@ export function Game() {
   const [viewing, setViewing] = useState<string | null>(null);
   const [hideEnd, setHideEnd] = useState(false);
   const [muted, setMuted] = useState(isMuted());
+  const [view3d, setView3d] = useState(() => WEBGL && pref3d());
+  const toggle3d = () => {
+    setView3d(!view3d);
+    try { localStorage.setItem('tycooon-3d', view3d ? '0' : '1'); } catch { /* ignore */ }
+  };
   const panelRef = useRef<HTMLElement>(null);
   const player = room?.players.find((p) => p.id === me);
   const lastLevel = useRef(player?.level ?? 1);
@@ -128,7 +140,18 @@ export function Game() {
         <div className="left">
           {!readOnly && playing && <MissionCard p={player} />}
           {readOnly && <ViewingBanner target={shown} me={player} onBack={() => setViewing(null)} />}
-          <City p={shown} readOnly={readOnly} sel={readOnly ? null : sel} onSelect={select} money={money} tick={playing ? receivedAt : 0} ev={ev} />
+          <div className="board">
+            {view3d ? (
+              <Suspense fallback={<div className="city3d loading"><div className="spinner" /></div>}>
+                <City3D p={shown} readOnly={readOnly} sel={readOnly ? null : sel} onSelect={select} onBuy={() => send({ t: 'buyPlot' })}
+                  money={money} tick={playing ? receivedAt : 0} ev={ev}
+                  onFail={() => { setView3d(false); toast('Tu dispositivo no soporta 3D: usando la vista 2D'); }} />
+              </Suspense>
+            ) : (
+              <City p={shown} readOnly={readOnly} sel={readOnly ? null : sel} onSelect={select} money={money} tick={playing ? receivedAt : 0} ev={ev} />
+            )}
+            {WEBGL && <button className="btn small view-toggle" onClick={toggle3d}>{view3d ? '▦ Vista 2D' : '🧊 Vista 3D'}</button>}
+          </div>
           <Feed room={room} me={player.id} />
         </div>
         <aside className="panel" ref={panelRef}>
