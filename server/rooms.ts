@@ -3,11 +3,12 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import * as G from '../shared/game.ts';
-import type { FeedItem, PlayerState, RoomEvent, RoomStatus, RoomView } from '../shared/game.ts';
+import type { CoopState, Difficulty, FeedItem, GameMode, PlayerState, RoomEvent, RoomStatus, RoomView } from '../shared/game.ts';
 
 export interface Room {
   code: string; name: string; hostId: string; status: RoomStatus;
   startedAt: number; winnerId: string | null;
+  mode: GameMode; difficulty: Difficulty; coop: CoopState | null;
   players: PlayerState[]; feed: FeedItem[];
   event: RoomEvent | null; nextEventAt: number;
   tokens: Record<string, string>; // playerId -> secret session token (never sent to other players)
@@ -37,7 +38,7 @@ export function createRoom(name: string): Room | string {
   if (rooms.size >= MAX_ROOMS) return 'El servidor está lleno, inténtalo más tarde';
   const room: Room = {
     code: newCode(), name: name || 'Partida', hostId: '', status: 'lobby',
-    startedAt: 0, winnerId: null,
+    startedAt: 0, winnerId: null, mode: 'versus', difficulty: 'normal', coop: null,
     players: [], feed: [], event: null, nextEventAt: 0, tokens: {}, lastActive: Date.now(),
   };
   rooms.set(room.code, room);
@@ -50,7 +51,7 @@ export function addPlayer(room: Room, name: string) {
   const used = new Set(room.players.map((p) => p.color));
   const player: PlayerState = {
     id: randomUUID().slice(0, 8), name, color: G.PLAYER_COLORS.find((c) => !used.has(c)) ?? '#94a3b8',
-    money: G.START_MONEY, xp: 0, level: 1, plots: Array(G.START_PLOTS).fill(null), techs: [], landmarks: [], maxed: [], bag: null, mission: 0, online: true,
+    money: G.START_MONEY, xp: 0, level: 1, plots: Array(G.START_PLOTS).fill(null), techs: [], landmarks: [], maxed: [], bag: null, mission: 0, boost: teamBoost(room), online: true,
   };
   const token = randomBytes(18).toString('base64url');
   room.players.push(player);
@@ -58,6 +59,20 @@ export function addPlayer(room: Room, name: string) {
   if (!room.hostId) room.hostId = player.id;
   log(room, `${name} se ha unido`, player.color);
   return { player, token };
+}
+
+/** Co-op income bonus every teammate gets: difficulty + finished projects. */
+function teamBoost(room: Room) {
+  const c = room.coop;
+  if (!c) return 0;
+  return G.DIFFICULTIES[c.difficulty].income - 1 + G.PROJECTS.slice(0, c.stage).reduce((s, pr) => s + pr.bonus, 0);
+}
+
+export function settings(room: Room, p: PlayerState, m: Record<string, unknown>) {
+  if (p.id !== room.hostId) return 'Solo el anfitrión puede cambiar el modo';
+  if (room.status !== 'lobby') return 'La partida ya ha empezado';
+  if (m.mode === 'versus' || m.mode === 'coop') room.mode = m.mode;
+  if (typeof m.difficulty === 'string' && Object.hasOwn(G.DIFFICULTIES, m.difficulty)) room.difficulty = m.difficulty as Difficulty;
 }
 
 export function removePlayer(room: Room, id: string) {
@@ -74,6 +89,11 @@ export function startGame(room: Room, p: PlayerState) {
   if (room.status !== 'lobby') return 'La partida ya ha empezado';
   room.status = 'playing';
   room.startedAt = Date.now();
+  if (room.mode === 'coop') {
+    room.coop = { difficulty: room.difficulty, stage: 0, funded: 0, scale: Math.max(1, room.players.length) / 2, rival: 0, contrib: {}, won: null };
+    room.players.forEach((x) => (x.boost = teamBoost(room)));
+    log(room, `🤝 Modo cooperativo (${G.DIFFICULTIES[room.difficulty].name}): terminad los 4 proyectos antes que ${G.RIVAL_NAME}`);
+  }
   room.nextEventAt = room.startedAt + 60_000;
   log(room, '¡La partida ha comenzado! 🏁');
 }
@@ -193,6 +213,27 @@ function applyAction(room: Room, p: PlayerState, m: Record<string, unknown>): st
       p.bag = null;
       return;
     }
+    case 'contribute': {
+      const c = room.coop;
+      if (!c) return 'Solo en modo cooperativo';
+      const amount = Math.min(Math.floor(Number(m.amount)), Math.floor(p.money), G.projectCost(c) - c.funded);
+      if (!Number.isFinite(amount) || amount < 1) return 'Cantidad inválida';
+      spend(p, amount);
+      c.funded += amount;
+      c.contrib[p.id] = (c.contrib[p.id] ?? 0) + amount;
+      if (c.funded >= G.projectCost(c)) {
+        const pr = G.PROJECTS[c.stage];
+        c.stage++;
+        c.funded = 0;
+        room.players.forEach((x) => (x.boost = teamBoost(room)));
+        if (c.stage >= G.PROJECTS.length) {
+          c.won = true;
+          room.status = 'ended';
+          log(room, `🏆 ¡${pr.emoji} ${pr.name} terminado! El equipo gana a ${G.RIVAL_NAME}`);
+        } else log(room, `${pr.emoji} ¡${pr.name} terminado! Todo el equipo gana +${pr.bonus * 100}% de ingresos`);
+      }
+      return;
+    }
     case 'gift': {
       const to = room.players.find((x) => x.id === m.to && x !== p);
       const amount = Math.floor(Number(m.amount));
@@ -242,6 +283,19 @@ export function tickRoom(room: Room, now = Date.now()) {
     }
     checkMissions(room, p);
   }
+  const c = room.coop;
+  if (c) {
+    const before = c.rival;
+    c.rival = Math.min(100, c.rival + (100 / (G.DIFFICULTIES[c.difficulty].rivalMinutes * 60)) * dt);
+    for (const mark of [25, 50, 75, 90]) if (before < mark && c.rival >= mark) log(room, `${G.RIVAL_NAME} ya va por el ${mark}%… ¡daos prisa!`);
+    if (c.rival >= 100) {
+      c.won = false;
+      room.status = 'ended';
+      room.players.forEach((p) => (p.bag = null));
+      log(room, `💀 ${G.RIVAL_NAME} ha terminado antes. El equipo pierde esta vez`);
+    }
+    return true;
+  }
   const winner = room.players.find((p) => G.completion(p).pct >= 100);
   if (winner) {
     room.status = 'ended';
@@ -285,7 +339,11 @@ export function loadRooms() {
         p.landmarks ??= [];
         p.maxed ??= [];
         p.bag = null;
+        p.boost ??= 0;
       });
+      r.mode ??= 'versus';
+      r.difficulty ??= 'normal';
+      r.coop ??= null;
       r.event ??= null;
       r.nextEventAt ??= 0;
       rooms.set(r.code, r);

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MAX_PLAYERS } from '../shared/game.ts';
+import { DIFFICULTIES, MAX_PLAYERS, RIVAL_NAME, type Difficulty } from '../shared/game.ts';
 import { send, useStore, savedName, saveName, toast, type ConnStatus } from './net.ts';
 import { Game, Feed } from './Game.tsx';
 
@@ -124,18 +124,38 @@ function Lobby() {
 
         <Feed room={room} me={me!} />
 
-        {isHost ? (
+        <h3>Modo de juego {!isHost && <small className="muted">(lo elige el anfitrión)</small>}</h3>
+        <div className="seg modes">
+          {(['versus', 'coop'] as const).map((m) => (
+            <button key={m} className={room.mode === m ? 'on' : ''} disabled={!isHost} onClick={() => send({ t: 'settings', mode: m })}>
+              {m === 'versus' ? '⚔️ Competitivo' : '🤝 Cooperativo'}
+              <small>{m === 'versus' ? 'Gana el primero en completar su imperio' : `Juntos contra ${RIVAL_NAME}`}</small>
+            </button>
+          ))}
+        </div>
+        {room.mode === 'coop' && (
           <>
-            <div className="mode-box">
-              <span>♾️</span>
-              <div><b>Partida sin límite de tiempo</b><small>Gana el primero en completar el 100% de su imperio.</small></div>
+            <h3>Dificultad</h3>
+            <div className="seg">
+              {(Object.keys(DIFFICULTIES) as Difficulty[]).map((d) => (
+                <button key={d} className={room.difficulty === d ? 'on' : ''} disabled={!isHost} onClick={() => send({ t: 'settings', difficulty: d })}>
+                  {DIFFICULTIES[d].emoji} {DIFFICULTIES[d].name}<small>{DIFFICULTIES[d].desc}</small>
+                </button>
+              ))}
             </div>
-            <button className="btn primary big" onClick={() => send({ t: 'start' })}>🚀 Empezar partida</button>
           </>
+        )}
+        {isHost ? (
+          <button className="btn primary big" onClick={() => send({ t: 'start' })}>🚀 Empezar partida</button>
         ) : (
           <p className="waiting"><span className="spinner small" /> Esperando a que el anfitrión empiece…</p>
         )}
-        <p className="muted small-text">Completar el imperio = todas las parcelas, investigaciones y monumentos, y cada tipo de edificio llevado al nivel máximo. Se puede entrar también con la partida empezada.</p>
+        <p className="muted small-text">
+          {room.mode === 'coop'
+            ? `Cada uno gestiona su ciudad. Aportad dinero a 4 grandes proyectos comunes (cada uno da ingresos extra a todo el equipo) y terminad el último antes que ${RIVAL_NAME}.`
+            : 'Completar el imperio = todas las parcelas, investigaciones y monumentos, y cada tipo de edificio llevado al nivel máximo.'}
+          {' '}Se puede entrar también con la partida empezada.
+        </p>
         <button className="btn ghost" onClick={() => send({ t: 'leave' })}>Salir</button>
       </div>
     </div>

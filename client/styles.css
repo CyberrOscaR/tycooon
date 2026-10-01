@@ -308,6 +308,22 @@ h1, h2, h3, h4 { margin: 0 0 8px; }
 .mode-box small { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
 
+/* co-op */
+.seg.modes { grid-template-columns: 1fr 1fr; }
+.seg button:disabled { cursor: default; color: inherit; }
+.seg button:disabled:not(.on) { opacity: .5; }
+.coop-card { background: var(--card); border: 1px solid #a78bfa66; border-radius: var(--radius); padding: 10px 14px; display: grid; gap: 8px; }
+.coop-row { display: flex; gap: 12px; align-items: center; }
+.coop-card small { color: var(--muted); font-size: 12px; }
+.give { font-size: 13px; color: var(--muted); }
+.give .btn { padding: 5px 12px; }
+.rival { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; font-size: 13px; font-weight: 700; }
+.bar.red i { background: linear-gradient(90deg, #f97316, #e11d48); }
+.item.project { cursor: default; }
+.item.project.now { border-color: var(--gold); }
+.item.project.done { border-color: #34d39955; }
+.item.project.done .price { color: var(--green); }
+
 /* end screen */
 .overlay { position: fixed; inset: 0; background: #000a; display: grid; place-items: center; z-index: 40; padding: 16px; backdrop-filter: blur(4px); }
 .end { width: min(440px, 100%); text-align: center; animation: pop .3s; }

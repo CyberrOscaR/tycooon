@@ -67,7 +67,8 @@ client/City3D.tsx Vista 3D con Three.js (edificios low-poly generados por códig
 - **Chat y reacciones** en el registro de actividad, también en el lobby.
 - **Sonidos** sintetizados con WebAudio (sin archivos), con botón de silencio 🔊.
 - **Ciudad en 3D:** gira la cámara arrastrando y haz zoom con la rueda o pellizcando. Toca una parcela para construir o mejorar. El botón *Vista 2D* cambia a la cuadrícula clásica (también se usa sola si el dispositivo no soporta WebGL). Three.js solo se descarga al entrar en una partida.
-- **Victoria (sin límite de tiempo):** gana el primero en completar el **100 % de su imperio**: todas las parcelas, todas las investigaciones, todos los monumentos y cada tipo de edificio llevado alguna vez a nivel 5 (la colección de la pestaña *Imperio*). El ranking se ordena por ese porcentaje.
+- **Modo cooperativo 🤝** (pensado para 2 personas): cada uno lleva su propia ciudad, así que nadie estorba al otro. El equipo aporta dinero a 4 grandes proyectos (🌉 Puente, 🚄 Tren, 🛫 Aeropuerto, 🚀 Puerto espacial). Cada proyecto terminado da ingresos extra a todos, y terminar el último gana la partida, siempre que sea antes de que la corporación rival 🦹 MegaCorp llegue al 100 %. Dificultades: 🌱 Fácil (rival en 80 min, proyectos a mitad de precio, +20 % de ingresos), ⚖️ Normal (55 min) y 🔥 Difícil (40 min, proyectos al doble de precio). Los costes se ajustan al número de jugadores.
+- **Victoria en modo competitivo (sin límite de tiempo):** gana el primero en completar el **100 % de su imperio**: todas las parcelas, todas las investigaciones, todos los monumentos y cada tipo de edificio llevado alguna vez a nivel 5 (la colección de la pestaña *Imperio*). El ranking se ordena por ese porcentaje.
 
 ## Fase 2
 

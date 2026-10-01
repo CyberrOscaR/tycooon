@@ -78,10 +78,35 @@ export interface PlayerState {
   maxed: BuildingType[]; // building types ever taken to max level (collection)
   bag: Bag | null;
   mission: number; // index of the current mission in MISSIONS
+  boost: number; // extra income multiplier from co-op projects and difficulty
   online: boolean;
 }
 
 export type RoomStatus = 'lobby' | 'playing' | 'ended';
+export type GameMode = 'versus' | 'coop';
+export type Difficulty = 'easy' | 'normal' | 'hard';
+
+// --- Co-op: each player keeps their own city; the team funds shared projects and races a rival corporation
+export const DIFFICULTIES: Record<Difficulty, { name: string; emoji: string; desc: string; rivalMinutes: number; cost: number; income: number }> = {
+  easy: { name: 'Fácil', emoji: '🌱', desc: 'Rival lento, proyectos a mitad de precio y +20% ingresos', rivalMinutes: 80, cost: 0.5, income: 1.2 },
+  normal: { name: 'Normal', emoji: '⚖️', desc: 'Un reto equilibrado', rivalMinutes: 55, cost: 1, income: 1 },
+  hard: { name: 'Difícil', emoji: '🔥', desc: 'Rival rápido y proyectos al doble de precio', rivalMinutes: 40, cost: 2, income: 1 },
+};
+export const PROJECTS = [
+  { name: 'Puente de la ciudad', emoji: '🌉', cost: 20_000, bonus: 0.1 },
+  { name: 'Tren de alta velocidad', emoji: '🚄', cost: 500_000, bonus: 0.15 },
+  { name: 'Aeropuerto internacional', emoji: '🛫', cost: 10_000_000, bonus: 0.2 },
+  { name: 'Puerto espacial', emoji: '🚀', cost: 300_000_000, bonus: 0 }, // the last one wins the game
+];
+export const RIVAL_NAME = '🦹 MegaCorp';
+export interface CoopState {
+  difficulty: Difficulty; stage: number; funded: number; scale: number;
+  rival: number; // rival progress, 0-100
+  contrib: Record<string, number>; won: boolean | null;
+}
+/** Project cost scales with difficulty and team size (tuned for 2 players). */
+export const projectCost = (c: CoopState, stage = c.stage) =>
+  PROJECTS[stage] ? Math.round(PROJECTS[stage].cost * DIFFICULTIES[c.difficulty].cost * c.scale) : 0;
 export interface FeedItem { ts: number; text: string; color?: string; from?: string } // `from` = chat message
 export interface RoomEvent { id: string; endsAt: number }
 
@@ -89,6 +114,7 @@ export interface RoomView {
   code: string; name: string; hostId: string; status: RoomStatus;
   startedAt: number;
   winnerId: string | null; players: PlayerState[]; feed: FeedItem[]; now: number;
+  mode: GameMode; difficulty: Difficulty; coop: CoopState | null;
   event: RoomEvent | null; // last random event (active while endsAt > now)
 }
 
@@ -105,7 +131,7 @@ const has = (p: PlayerState, t: TechId) => p.techs.includes(t);
 const landmarkBonus = (p: PlayerState, k: 'income' | 'upkeep') => p.landmarks.reduce((s, id) => s + (LANDMARK[id][k] ?? 0), 0);
 /** Techs and monuments add up; each player level gives a further permanent +3%. */
 export const incomeMult = (p: PlayerState) =>
-  (1 + (has(p, 'marketing') ? 0.2 : 0) + (has(p, 'franchise') ? 0.4 : 0) + (has(p, 'ai') ? 0.5 : 0) + landmarkBonus(p, 'income')) *
+  (1 + (has(p, 'marketing') ? 0.2 : 0) + (has(p, 'franchise') ? 0.4 : 0) + (has(p, 'ai') ? 0.5 : 0) + landmarkBonus(p, 'income') + p.boost) *
   (1 + 0.03 * (p.level - 1));
 export const upkeepMult = (p: PlayerState) =>
   (has(p, 'accounting') ? 0.8 : 1) * (has(p, 'automation') ? 0.7 : 1) * (1 - landmarkBonus(p, 'upkeep'));
@@ -206,6 +232,7 @@ export function completion(p: PlayerState) {
 
 export function fmt(n: number) {
   const a = Math.abs(n);
+  if (a < 0.05) return '0';
   if (a >= 1e9) return (n / 1e9).toFixed(2) + 'B';
   if (a >= 1e6) return (n / 1e6).toFixed(2) + 'M';
   if (a >= 1e4) return (n / 1e3).toFixed(1) + 'K';

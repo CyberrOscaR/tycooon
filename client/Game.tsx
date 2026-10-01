@@ -85,7 +85,24 @@ export function Game() {
     if (d) { toast(`${d.emoji} ${d.name}: ${d.desc}`); play('event'); }
   }, [room?.event?.endsAt]);
 
-  useEffect(() => { if (room?.status === 'ended') { play('win'); setConfettiAt(Date.now()); } }, [room?.status]);
+  useEffect(() => {
+    if (room?.status !== 'ended') return;
+    if (room.coop?.won === false) play('error');
+    else { play('win'); setConfettiAt(Date.now()); }
+  }, [room?.status]);
+
+  const lastStage = useRef(room?.coop?.stage ?? 0);
+  useEffect(() => {
+    const c = room?.coop;
+    if (!c) return;
+    if (c.stage > lastStage.current && c.stage < G.PROJECTS.length) {
+      const pr = G.PROJECTS[c.stage - 1];
+      toast(`${pr.emoji} ¡${pr.name} terminado! +${pr.bonus * 100}% ingresos para el equipo`, 'good');
+      play('level');
+      setConfettiAt(Date.now());
+    }
+    lastStage.current = c.stage;
+  }, [room?.coop?.stage]);
 
   if (!room || !player) return null;
 
@@ -127,7 +144,7 @@ export function Game() {
         <div className="room-info"><b>{room.name}</b><span className="code" title="Código de partida">{room.code}</span></div>
         <div className="timer">
           {playing ? <>⏱️ {mmss(serverNow - room.startedAt)}</> : '🏁 Terminada'}
-          <small>Meta: imperio al 100%</small>
+          <small>{room.coop ? `🤝 Cooperativo · ${G.DIFFICULTIES[room.coop.difficulty].emoji} ${G.DIFFICULTIES[room.coop.difficulty].name}` : 'Meta: imperio al 100%'}</small>
         </div>
         <ConnDot status={status} />
         <button className="btn ghost small" onClick={() => setMuted(toggleMute())} title={muted ? 'Activar sonido' : 'Silenciar'}>{muted ? '🔇' : '🔊'}</button>
@@ -143,10 +160,17 @@ export function Game() {
           <div className="bar"><i style={{ width: lvlTo ? `${Math.min(100, ((player.xp - lvlFrom) / (lvlTo - lvlFrom)) * 100)}%` : '100%' }} /></div>
           <small>{lvlTo ? `${G.fmt(player.xp)} / ${G.fmt(lvlTo)} XP` : 'Nivel máximo'}</small>
         </div>
-        <div className="stat empire-stat" onClick={() => setTab('empire')}><label>Imperio · #{rank} de {room.players.length}</label>
-          <div className="bar gold"><i style={{ width: `${comp.pct}%` }} /></div>
-          <small><b>{comp.pct}%</b> completado</small>
-        </div>
+        {room.coop ? (
+          <div className="stat empire-stat" onClick={() => setTab('empire')}><label>Equipo · proyecto {Math.min(room.coop.stage + 1, 4)}/4</label>
+            <div className="bar gold"><i style={{ width: `${(room.coop.funded / (G.projectCost(room.coop) || 1)) * 100}%` }} /></div>
+            <small>Rival: <b className="red">{Math.floor(room.coop.rival)}%</b></small>
+          </div>
+        ) : (
+          <div className="stat empire-stat" onClick={() => setTab('empire')}><label>Imperio · #{rank} de {room.players.length}</label>
+            <div className="bar gold"><i style={{ width: `${comp.pct}%` }} /></div>
+            <small><b>{comp.pct}%</b> completado</small>
+          </div>
+        )}
       </section>
 
       {ev && (
@@ -159,6 +183,7 @@ export function Game() {
 
       <main className="layout">
         <div className="left">
+          {!readOnly && playing && room.coop && <CoopCard c={room.coop} money={money} />}
           {!readOnly && playing && <MissionCard p={player} />}
           {readOnly && <ViewingBanner target={shown} me={player} onBack={() => setViewing(null)} />}
           <div className="board">
@@ -188,7 +213,7 @@ export function Game() {
             ? <Details key={sel} p={player} i={sel!} money={money} ev={ev} onClose={() => setSel(null)} />
             : <BuildList p={player} plot={sel !== null && !player.plots[sel] ? sel : null} money={money} onBuilt={() => setSel(null)} />)}
           {tab === 'tech' && <Techs p={player} money={money} />}
-          {tab === 'empire' && <Empire p={player} money={money} />}
+          {tab === 'empire' && <Empire p={player} money={money} room={room} />}
           {tab === 'players' && <Players room={room} me={player.id} ev={ev} viewing={shown.id} onView={(id) => setViewing(id === player.id ? null : id)} />}
         </aside>
       </main>
@@ -358,7 +383,7 @@ function Players({ room, me, ev, viewing, onView }: { room: RoomView; me: string
           <span className="avatar" style={{ background: p.color }}>{p.name[0]?.toUpperCase()}</span>
           <span className="info">
             <b>{p.name}{p.id === me && <em> (tú)</em>} <span className={`dot ${p.online ? 'on' : ''}`} /></b>
-            <small>🏰 {G.completion(p).pct}% · Nv {p.level} · {$(G.rates(p, ev).net)}/s</small>
+            <small>{room.coop ? `🤝 aportado ${$(room.coop.contrib[p.id] ?? 0)}` : `🏰 ${G.completion(p).pct}%`} · Nv {p.level} · {$(G.rates(p, ev).net)}/s</small>
           </span>
           <span className="price">{$(G.netWorth(p))}</span>
         </button>
@@ -411,13 +436,14 @@ export function Feed({ room, me }: { room: RoomView; me: string }) {
   );
 }
 
-function Empire({ p, money }: { p: PlayerState; money: number }) {
+function Empire({ p, money, room }: { p: PlayerState; money: number; room: RoomView }) {
   const { pct, parts } = G.completion(p);
   const rows: [string, readonly [number, number]][] = [
     ['🗺️ Parcelas', parts.plots], ['🔬 Investigaciones', parts.techs], ['🏛️ Monumentos', parts.landmarks], ['⭐ Edificios al máximo', parts.maxed],
   ];
   return (
     <div className="list">
+      {room.coop ? <TeamProjects room={room} /> : <>
       <div className="empire-head"><b>{pct}%</b><span>Completa el 100% para ganar la partida</span></div>
       {rows.map(([label, [a, b]]) => (
         <div key={label} className="empire-row">
@@ -431,6 +457,7 @@ function Empire({ p, money }: { p: PlayerState; money: number }) {
           <span key={d.id} className={p.maxed.includes(d.id) ? 'got' : ''} title={d.name}>{d.emoji}</span>
         ))}
       </div>
+      </>}
       <h4 className="sub">Monumentos (bonificación permanente)</h4>
       {G.LANDMARKS.map((l) => {
         const done = p.landmarks.includes(l.id), locked = p.level < l.unlock;
@@ -463,6 +490,60 @@ function Confetti() {
   );
 }
 
+function CoopCard({ c, money }: { c: G.CoopState; money: number }) {
+  const pr = G.PROJECTS[c.stage];
+  if (!pr) return null;
+  const cost = G.projectCost(c), left = cost - c.funded;
+  const eta = ((100 - c.rival) / (100 / (G.DIFFICULTIES[c.difficulty].rivalMinutes * 60))) * 1000;
+  const give = (f: number) => {
+    netSend({ t: 'contribute', amount: Math.min(left, Math.floor(money * f)) });
+    play('coin');
+  };
+  return (
+    <div className="coop-card">
+      <div className="coop-row">
+        <span className="m-ico">{pr.emoji}</span>
+        <div className="m-body">
+          <div className="m-top"><b>Proyecto {c.stage + 1}/4: {pr.name}</b><span className="m-reward">{pr.bonus ? `+${pr.bonus * 100}% ingresos` : '🏆 Victoria'}</span></div>
+          <div className="bar gold"><i style={{ width: `${(c.funded / cost) * 100}%` }} /></div>
+          <small>{$(c.funded)} de {$(cost)} · faltan {$(left)}</small>
+        </div>
+      </div>
+      <div className="row give">
+        <span>Aportar:</span>
+        {[0.1, 0.25, 0.5, 1].map((f) => (
+          <button key={f} className="btn small" disabled={money < 1} onClick={() => give(f)}>{f === 1 ? 'Todo' : `${f * 100}%`}</button>
+        ))}
+      </div>
+      <div className="rival">
+        <span>{G.RIVAL_NAME}</span>
+        <div className="bar red"><i style={{ width: `${c.rival}%` }} /></div>
+        <small>{Math.floor(c.rival)}% · acaba en ~{mmss(eta)}</small>
+      </div>
+    </div>
+  );
+}
+
+function TeamProjects({ room }: { room: RoomView }) {
+  const c = room.coop!;
+  return (
+    <>
+      <div className="empire-head"><b>{c.stage}/4</b><span>Proyectos del equipo · terminad el último antes que {G.RIVAL_NAME}</span></div>
+      {G.PROJECTS.map((pr, k) => (
+        <div key={k} className={`item project ${k < c.stage ? 'done' : k === c.stage ? 'now' : 'locked'}`}>
+          <span className="ico">{pr.emoji}</span>
+          <span className="info"><b>{pr.name}</b><small>{pr.bonus ? `+${pr.bonus * 100}% ingresos para todo el equipo` : 'Victoria del equipo'}</small></span>
+          <span className="price">{k < c.stage ? '✓' : $(G.projectCost(c, k))}</span>
+        </div>
+      ))}
+      <h4 className="sub">Aportaciones</h4>
+      {room.players.map((p) => (
+        <div key={p.id} className="empire-row"><span style={{ color: p.color }}>{p.name}</span><small>{$(c.contrib[p.id] ?? 0)}</small></div>
+      ))}
+    </>
+  );
+}
+
 function MissionCard({ p }: { p: PlayerState }) {
   const m = G.MISSIONS[p.mission];
   if (!m) return <div className="mission"><span className="m-ico">🏅</span><b>¡Has completado todas las misiones!</b></div>;
@@ -486,15 +567,17 @@ function EndOverlay({ room, me, onClose, onLeave }: { room: RoomView; me: string
   return (
     <div className="overlay">
       <div className="card end">
-        <div className="trophy">🏆</div>
-        <h2>{winner?.id === me ? '¡Has completado tu imperio!' : `¡${winner?.name ?? 'Nadie'} ha completado su imperio!`}</h2>
+        <div className="trophy">{room.coop?.won === false ? '💀' : '🏆'}</div>
+        <h2>{room.coop ? (room.coop.won ? '¡Victoria del equipo!' : `${G.RIVAL_NAME} os ha ganado esta vez`)
+          : winner?.id === me ? '¡Has completado tu imperio!' : `¡${winner?.name ?? 'Nadie'} ha completado su imperio!`}</h2>
+        {room.coop && <p className="muted">Aportaciones de cada uno:</p>}
         <ol>
           {ranked.map((p, i) => (
             <li key={p.id} className={p.id === me ? 'me' : ''}>
               <span>{['🥇', '🥈', '🥉'][i] ?? `#${i + 1}`}</span>
               <span className="avatar" style={{ background: p.color }}>{p.name[0]?.toUpperCase()}</span>
               <span className="grow">{p.name}</span>
-              <b>{G.completion(p).pct}%</b>
+              <b>{room.coop ? $(room.coop.contrib[p.id] ?? 0) : `${G.completion(p).pct}%`}</b>
             </li>
           ))}
         </ol>
