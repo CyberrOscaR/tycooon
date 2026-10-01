@@ -3,6 +3,7 @@ import * as G from '../shared/game.ts';
 import type { Building, PlayerState, RoomView } from '../shared/game.ts';
 import { send as netSend, toast, useStore } from './net.ts';
 import { ConnDot } from './App.tsx';
+import { LandmarkSprite, Sprite } from './sprites.tsx';
 import { isMuted, play, toggleMute } from './sound.ts';
 
 // The 3D view (Three.js) is loaded on demand so the home screen stays light.
@@ -268,14 +269,16 @@ function City({ p, readOnly, sel, onSelect, money, tick, ev, onCollect, onUpgrad
         // key includes the type so a new building re-mounts and plays its "pop" animation
         <button key={`${i}-${b.type}`} className={`plot built t-${b.type} ${sel === i ? 'sel' : ''} ${mod > 1.01 ? 'boost' : mod < 0.99 ? 'nerf' : ''} ${b.level >= G.MAX_BUILDING_LEVEL ? 'maxed' : ''}`}
           disabled={readOnly} onClick={() => onSelect(i)} style={{ '--d': `${(i % 5) * 0.3}s` } as React.CSSProperties}>
-          <span className="emoji" key={b.level}>{d.emoji}</span>
+          <Sprite key={b.level} type={b.type} level={b.level} className="tile-spr" />
           <span className="bname">{d.name}</span>
-          <span className="stars">{'★'.repeat(b.level)}<em>{'★'.repeat(G.MAX_BUILDING_LEVEL - b.level)}</em></span>
+          <span className="tile-foot">
+            <span className="stars">{'★'.repeat(b.level)}<em>{'★'.repeat(G.MAX_BUILDING_LEVEL - b.level)}</em></span>
+            {canUp && (
+              <span role="button" className="quick-up" title="Mejorar" onClick={(e) => { e.stopPropagation(); onUpgrade(i); }}>⬆️ {$(upCost)}</span>
+            )}
+          </span>
           {b.staff > 0 && <span className="staff">👷{b.staff}</span>}
           {tick > 0 && <span className="earn" key={tick}>+{G.fmt(netOf(b, p, ev))}</span>}
-          {canUp && (
-            <span role="button" className="quick-up" title="Mejorar" onClick={(e) => { e.stopPropagation(); onUpgrade(i); }}>⬆️ {$(upCost)}</span>
-          )}
           {bag && (
             <span role="button" className="bag" title="¡Cobrar!" onClick={(e) => { e.stopPropagation(); onCollect(i, e); }}>💰</span>
           )}
@@ -292,6 +295,11 @@ function City({ p, readOnly, sel, onSelect, money, tick, ev, onCollect, onUpgrad
   return (
     <div className="districts" style={{ '--pc': p.color } as React.CSSProperties}>
       <div className="city">{cells.slice(0, G.DISTRICT_SIZE)}</div>
+      {p.landmarks.length > 0 && (
+        <div className="plaza" title="Monumentos">
+          {p.landmarks.map((id) => <LandmarkSprite key={id} id={id} />)}
+        </div>
+      )}
       {p.districts > 1
         ? <><div className="district-title">🌆 Distrito Futuro</div><div className="city future">{cells.slice(G.DISTRICT_SIZE)}</div></>
         : <DistrictLock p={p} money={money} readOnly={readOnly} />}
@@ -329,7 +337,7 @@ function BuildList({ p, plot, money, onBuilt }: { p: PlayerState; plot: number |
         return (
           <button key={d.id} className={`item ${locked ? 'locked' : ''}`} disabled={locked || target < 0 || money < d.cost}
             onClick={() => { send({ t: 'build', plot: target, type: d.id }); onBuilt(); }}>
-            <span className="ico">{locked ? '🔒' : d.emoji}</span>
+            <span className="ico">{locked ? '🔒' : <Sprite type={d.id} />}</span>
             <span className="info">
               <b>{d.name}</b>
               <small>{locked ? `Se desbloquea en nivel ${d.unlock}` : `+${$(G.buildingIncome(nb, p))}/s · mant. ${$(G.buildingExpense(nb, p))}/s`}</small>
@@ -356,7 +364,7 @@ function Details({ p, i, money, ev, onClose }: { p: PlayerState; i: number; mone
   return (
     <div className="details">
       <div className="det-head">
-        <span className={`det-ico t-${b.type}`}>{d.emoji}</span>
+        <span className={`det-ico t-${b.type}`}><Sprite type={b.type} level={b.level} /></span>
         <div><h3>{d.name}</h3><span className="muted">Parcela {i + 1} · Nivel {b.level}/{G.MAX_BUILDING_LEVEL}</span></div>
         <button className="x" onClick={onClose} aria-label="Cerrar">✕</button>
       </div>
@@ -489,7 +497,7 @@ function Empire({ p, money, room }: { p: PlayerState; money: number; room: RoomV
       <h4 className="sub">Colección: lleva cada edificio a nivel 5</h4>
       <div className="collection">
         {G.BUILDINGS.map((d) => (
-          <span key={d.id} className={p.maxed.includes(d.id) ? 'got' : ''} title={d.name}>{d.emoji}</span>
+          <span key={d.id} className={p.maxed.includes(d.id) ? 'got' : ''} title={d.name}><Sprite type={d.id} level={5} /></span>
         ))}
       </div>
       </>}
@@ -508,7 +516,7 @@ function Empire({ p, money, room }: { p: PlayerState; money: number; room: RoomV
         return (
           <button key={l.id} className={`item ${done ? 'done' : ''} ${locked ? 'locked' : ''}`}
             disabled={done || locked || money < l.cost} onClick={() => send({ t: 'landmark', id: l.id })}>
-            <span className="ico">{locked ? '🔒' : l.emoji}</span>
+            <span className="ico">{locked ? '🔒' : <LandmarkSprite id={l.id} />}</span>
             <span className="info"><b>{l.name}</b><small>{locked ? `Nivel ${l.unlock} · ${bonus}` : bonus}</small></span>
             <span className="price">{done ? '✓' : $(l.cost)}</span>
           </button>

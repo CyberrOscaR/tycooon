@@ -146,7 +146,7 @@ h1, h2, h3, h4 { margin: 0 0 8px; }
 .plot.locked { background: #00000033; display: grid; place-content: center; opacity: .5; cursor: default; }
 .plot.built { color: #0b1220; box-shadow: 0 4px 0 #0004; }
 .plot .emoji { font-size: clamp(26px, 5vw, 40px); line-height: 1.1; filter: drop-shadow(0 2px 2px #0004); }
-.plot.built:hover .emoji { animation: bounce .4s; }
+.plot.built:hover .tile-spr { animation: bounce .4s; }
 @keyframes bounce { 50% { transform: translateY(-4px) scale(1.08); } }
 .bname { font-weight: 700; font-size: 12px; line-height: 1.1; }
 .stars { color: #b45309; font-size: 12px; letter-spacing: 1px; }
@@ -264,19 +264,20 @@ h1, h2, h3, h4 { margin: 0 0 8px; }
 @keyframes tick { 40% { transform: scale(1.06); color: #fff; } }
 .plot.built { animation: build-in .45s cubic-bezier(.34, 1.56, .64, 1); }
 @keyframes build-in { from { transform: scale(.4) translateY(14px); opacity: 0; } }
-.plot.built .emoji { animation: idle 2.4s ease-in-out infinite, level-up .6s ease-out; animation-delay: var(--d, 0s), 0s; }
+.plot.built .tile-spr { animation: idle 2.4s ease-in-out infinite, level-up .6s ease-out; animation-delay: var(--d, 0s), 0s; }
 @keyframes idle { 50% { transform: translateY(-3px); } }
 @keyframes level-up { 0% { transform: scale(1.6); filter: drop-shadow(0 0 12px #fde047); } }
 .plot.maxed { box-shadow: 0 0 0 2px var(--gold), 0 4px 0 #0004, 0 0 16px #fbbf2466; }
 .plot.empty.can .plus { animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 50% { transform: scale(1.25); } }
+.tile-foot { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; min-height: 20px; }
 .quick-up {
-  position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%); white-space: nowrap;
+  white-space: nowrap;
   background: #16a34a; color: #fff; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 99px;
   box-shadow: 0 2px 0 #14532d; animation: pulse-soft 1.6s ease-in-out infinite;
 }
 .quick-up:hover { background: #22c55e; }
-@keyframes pulse-soft { 50% { transform: translateX(-50%) scale(1.08); } }
+@keyframes pulse-soft { 50% { transform: scale(1.08); } }
 .bag, .bag3d {
   position: absolute; top: 4px; left: 50%; font-size: 36px; line-height: 1; cursor: pointer; z-index: 2;
   filter: drop-shadow(0 3px 4px #0008); animation: bag 0.9s ease-in-out infinite;
@@ -346,6 +347,38 @@ h1, h2, h3, h4 { margin: 0 0 8px; }
 }
 .achievements span small { font-size: 9px; color: var(--muted); line-height: 1.1; }
 .achievements span.got { filter: none; opacity: 1; background: #fbbf2418; box-shadow: inset 0 0 0 1px #fbbf2455; }
+
+/* SVG sprites */
+.spr { display: block; overflow: visible; }
+/* size the sprite relative to the tile itself, so tall buildings never push the labels out */
+.plot.built { gap: 1px; padding-top: 2px; container-type: size; }
+.plot .tile-spr { width: 92cqw; height: 60cqh; margin-bottom: -6px; filter: drop-shadow(0 3px 3px #0003); }
+.item .ico .spr, .det-ico .spr { width: 44px; height: 44px; margin: -4px auto; }
+.det-ico .spr { width: 54px; height: 54px; }
+.collection span .spr { width: 34px; height: 34px; margin: 0 auto; }
+.plaza { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; padding: 8px; border-radius: 14px; background: linear-gradient(160deg, #3f6212, #4d7c0f); }
+.plaza .spr { width: 64px; height: 64px; filter: drop-shadow(0 3px 3px #0004); }
+.spr .smoke circle { animation: spr-puff 2.4s ease-out infinite; transform-box: fill-box; transform-origin: center; opacity: 0; }
+.spr .smoke circle:nth-child(2) { animation-delay: .8s; }
+.spr .smoke circle:nth-child(3) { animation-delay: 1.6s; }
+@keyframes spr-puff { 0% { transform: translate(0, 0) scale(.5); opacity: .9; } 100% { transform: translate(6px, -28px) scale(1.7); opacity: 0; } }
+.spr .spin { animation: spr-spin 6s linear infinite; transform-box: fill-box; transform-origin: center; }
+.spr .spin.slow { animation-duration: 12s; }
+.spr .spin.rev { animation-direction: reverse; animation-duration: 4s; }
+@keyframes spr-spin { to { transform: rotate(360deg); } }
+.spr .coin { animation: spr-coin 2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes spr-coin { 50% { transform: scaleX(.12); } }
+.spr .blink { animation: spr-blink 1s steps(2) infinite; }
+.spr .blink-slow { animation: spr-blink 2.4s ease-in-out infinite; }
+@keyframes spr-blink { 50% { opacity: .25; } }
+.spr .bob { animation: spr-bob 2s ease-in-out infinite; }
+@keyframes spr-bob { 50% { transform: translateY(-3px); } }
+.spr .pulse { animation: spr-pulse 2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes spr-pulse { 50% { transform: scale(1.08); opacity: .8; } }
+.spr .glow { filter: drop-shadow(0 0 6px #67e8f9); }
+.spr .twinkle { animation: spr-blink 3.5s ease-in-out infinite; }
+.spr .sway { animation: spr-sway 6s ease-in-out infinite; transform-box: fill-box; transform-origin: bottom; }
+@keyframes spr-sway { 50% { transform: rotate(-12deg); } }
 
 /* end screen */
 .overlay { position: fixed; inset: 0; background: #000a; display: grid; place-items: center; z-index: 40; padding: 16px; backdrop-filter: blur(4px); }
